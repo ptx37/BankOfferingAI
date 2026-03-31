@@ -1,78 +1,109 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 /* ── Light theme (default) ───────────────────────────────────────────────── */
 :root {
-  --color-primary: #0C447C;
-  --color-action: #185FA5;
-  --color-accent: #378ADD;
-  --color-header-bg: #0C447C;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 
-  --color-background-primary: #ffffff;
-  --color-background-secondary: #F3F4F6;
-  --color-background-light-info: #E6F1FB;
-  --color-sidebar-active: #E6F1FB;
+  /* Backgrounds */
+  --color-background-secondary: #EEF2FF;
+  --color-background-primary:   #FFFFFF;
+  --color-background-light-info:#E8F0FF;
 
-  --color-text-primary: #111827;
-  --color-text-secondary: #6B7280;
-  --color-text-muted: #9CA3AF;
-  --color-border-tertiary: #E5E7EB;
+  /* Sidebar — ALWAYS dark regardless of theme */
+  --sidebar-bg:          #0F1C38;
+  --sidebar-border:      rgba(255,255,255,0.06);
+  --sidebar-text:        rgba(255,255,255,0.48);
+  --sidebar-text-active: #FFFFFF;
+  --sidebar-active-bg:   rgba(43,95,232,0.20);
+  --sidebar-hover-bg:    rgba(255,255,255,0.06);
 
-  --color-positive: #3B6D11;
-  --color-negative: #A32D2D;
+  /* Brand */
+  --color-action:     #2B5FE8;
+  --color-accent:     #2B5FE8;
+  --color-header-bg:  #0F1C38;
 
-  --color-badge-good-bg: #EAF3DE;
-  --color-badge-good-text: #3B6D11;
-  --color-badge-consider-bg: #FAEEDA;
-  --color-badge-consider-text: #854F0B;
+  /* Legacy alias kept for backward compat */
+  --color-primary: #2B5FE8;
 
-  --color-neutral-bar: #B4B2A9;
-  --color-warning-bg: #FFF8E6;
-  --color-warning-border: #D4A017;
-  --color-warning-text: #854F0B;
+  /* Text */
+  --color-text-primary:   #0B1A3E;
+  --color-text-secondary: #47587A;
+  --color-text-muted:     #8A9BC0;
 
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* Borders */
+  --color-border-tertiary: #DDE4F5;
 
-  --shadow-dropdown: 0 4px 16px rgba(0, 0, 0, 0.10);
+  /* Active / info areas */
+  --color-sidebar-active: #E8F0FF;
+
+  /* Status */
+  --color-positive:    #0B9D6C;
+  --color-negative:    #D63058;
+  --color-neutral-bar: #C4CEE8;
+
+  /* Badges */
+  --color-badge-good-bg:      #DCFCE7;
+  --color-badge-good-text:    #0B9D6C;
+  --color-badge-consider-bg:  #FEF0D6;
+  --color-badge-consider-text:#9D5D0B;
+
+  /* Warnings */
+  --color-warning-bg:     #FFFBEB;
+  --color-warning-border: #D9A020;
+  --color-warning-text:   #9D5D0B;
+
+  /* Shadows */
+  --shadow-dropdown: 0 8px 32px rgba(10,25,80,0.13), 0 2px 8px rgba(10,25,80,0.07);
+  --shadow-card:     0 1px 4px rgba(10,25,80,0.07),  0 1px 2px rgba(10,25,80,0.04);
 }
 
-/* ── Dark theme ───────────────────────────────────────────────────────────── */
+/* ── Dark theme ──────────────────────────────────────────────────────────── */
 [data-theme="dark"] {
-  --color-header-bg: #0C3B6E;
+  --color-background-secondary: #070C18;
+  --color-background-primary:   #0E1828;
+  --color-background-light-info:#0D1F3C;
 
-  --color-background-primary: #1A1F2C;
-  --color-background-secondary: #0F1117;
-  --color-background-light-info: #1C3654;
-  --color-sidebar-active: #1C3654;
+  --sidebar-bg:          #050A14;
+  --sidebar-border:      rgba(255,255,255,0.05);
+  --sidebar-text:        rgba(255,255,255,0.40);
+  --sidebar-text-active: #FFFFFF;
+  --sidebar-active-bg:   rgba(75,139,245,0.18);
+  --sidebar-hover-bg:    rgba(255,255,255,0.04);
 
-  --color-text-primary: #E8EDF5;
-  --color-text-secondary: #8B95A5;
-  --color-text-muted: #5A6475;
-  --color-border-tertiary: #252B3B;
+  --color-action:    #4B8BF5;
+  --color-accent:    #4B8BF5;
+  --color-header-bg: #050A14;
 
-  --color-positive: #4ADE80;
-  --color-negative: #F87171;
+  --color-primary: #4B8BF5;
 
-  --color-badge-good-bg: #0D2016;
-  --color-badge-good-text: #4ADE80;
-  --color-badge-consider-bg: #241508;
-  --color-badge-consider-text: #FBBF24;
+  --color-text-primary:   #E0EBFF;
+  --color-text-secondary: #5E77A8;
+  --color-text-muted:     #324868;
 
-  --color-neutral-bar: #3D4352;
-  --color-warning-bg: #1E1508;
-  --color-warning-border: #92620A;
-  --color-warning-text: #FBBF24;
+  --color-border-tertiary: #142038;
+  --color-sidebar-active:  #0D1F3C;
 
-  --shadow-dropdown: 0 4px 24px rgba(0, 0, 0, 0.45);
+  --color-positive:    #32D4A0;
+  --color-negative:    #FF607A;
+  --color-neutral-bar: #1E2E4A;
+
+  --color-badge-good-bg:      #051A12;
+  --color-badge-good-text:    #32D4A0;
+  --color-badge-consider-bg:  #1A1100;
+  --color-badge-consider-text:#FBBF24;
+
+  --color-warning-bg:     #130E00;
+  --color-warning-border: #7C5500;
+  --color-warning-text:   #FBBF24;
+
+  --shadow-dropdown: 0 8px 32px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.32);
+  --shadow-card:     0 2px 8px rgba(0,0,0,0.32),  0 1px 3px rgba(0,0,0,0.20);
 }
 
-/* ── Reset ────────────────────────────────────────────────────────────────── */
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+/* ── Reset ───────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html, body, #__next {
-  height: 100%;
-}
+html, body, #__next { height: 100%; }
 
 body {
   font-family: var(--font-sans);
@@ -85,11 +116,53 @@ body {
   transition: background 0.2s, color 0.2s;
 }
 
-button {
-  font-family: inherit;
+button { font-family: inherit; }
+a { color: inherit; text-decoration: none; }
+
+/* ── Custom scrollbars ───────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border-tertiary); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
+
+/* ── Sidebar expand/collapse ─────────────────────────────────────────────── */
+/* The sidebar nav element transitions width on hover.
+   Labels are clipped by each button's overflow:hidden.
+   Sidebar itself is overflow:visible so dropdowns can escape. */
+.nav-sidebar {
+  width: 64px;
+  transition: width 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: visible;
+  flex-shrink: 0;
+}
+.nav-sidebar:hover { width: 226px; }
+
+/* Labels: invisible at rest, fade in when sidebar expands */
+.nav-sidebar .sb-label {
+  opacity: 0;
+  transition: opacity 0.08s ease;
+  pointer-events: none;
+}
+.nav-sidebar:hover .sb-label {
+  opacity: 1;
+  transition: opacity 0.18s ease 0.1s;
+  pointer-events: auto;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+/* Nav buttons clip their own content */
+.nav-sidebar .sb-btn {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* Login page gradient background */
+.login-bg {
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 0%, rgba(43,95,232,0.12) 0%, transparent 70%),
+    var(--color-background-secondary);
+}
+[data-theme="dark"] .login-bg {
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 0%, rgba(75,139,245,0.10) 0%, transparent 70%),
+    var(--color-background-secondary);
 }
