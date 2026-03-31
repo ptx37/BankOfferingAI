@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
+} from 'recharts';
 import TopBarControls from '../components/TopBarControls';
 import { useTranslation } from '../lib/i18n';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Profile {
   customer_id: string; name: string; segment: string; financial_health: string;
@@ -15,10 +20,7 @@ interface Offer {
   rank: number; channel: string; cta_url: string;
 }
 
-const BAR_OPACITIES = [1.0, 0.7, 0.5, 0.35, 0.25];
-const HEALTH_COLOR: Record<string, string> = {
-  healthy: '#3B6D11', watchlist: '#854F0B', fragile: '#A32D2D',
-};
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 function authHeader() {
   const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : '';
@@ -27,12 +29,186 @@ function authHeader() {
 
 export async function getServerSideProps() { return { props: {} }; }
 
+const PIE_COLORS = ['#60A5FA', '#34D399', '#F472B6', '#FBBF24', '#A78BFA', '#FB923C'];
+
+const PLACEHOLDER_SPENDING: SpendItem[] = [
+  { category: 'Food & Dining',  amount: 640 },
+  { category: 'Transport',      amount: 280 },
+  { category: 'Shopping',       amount: 520 },
+  { category: 'Utilities',      amount: 190 },
+  { category: 'Travel',         amount: 340 },
+  { category: 'Entertainment',  amount: 145 },
+];
+
+const PLACEHOLDER_TRANSACTIONS = [
+  { date: '2026-03-28', description: 'Lidl Supermarket',          category: 'Food & Dining',  amount: -42.30 },
+  { date: '2026-03-27', description: 'Salary — March 2026',       category: 'Income',         amount: 3800.00 },
+  { date: '2026-03-26', description: 'Uber Ride',                 category: 'Transport',      amount: -14.50 },
+  { date: '2026-03-25', description: 'Netflix Subscription',      category: 'Entertainment',  amount: -15.99 },
+  { date: '2026-03-24', description: 'Zara Online',               category: 'Shopping',       amount: -89.00 },
+  { date: '2026-03-22', description: 'Electricity Bill',          category: 'Utilities',      amount: -76.20 },
+  { date: '2026-03-21', description: 'Booking.com — Rome Hotel',  category: 'Travel',         amount: -230.00 },
+  { date: '2026-03-20', description: 'Starbucks Coffee',          category: 'Food & Dining',  amount: -8.40 },
+  { date: '2026-03-19', description: 'ATM Withdrawal',            category: 'Other',          amount: -200.00 },
+  { date: '2026-03-18', description: 'Amazon Purchase',           category: 'Shopping',       amount: -63.45 },
+  { date: '2026-03-15', description: 'Interest Payment — Savings',category: 'Income',         amount: 12.80 },
+  { date: '2026-03-14', description: 'Freelance Invoice #47',     category: 'Income',         amount: 450.00 },
+];
+
+const PLACEHOLDER_SUGGESTIONS = [
+  {
+    id: 'travel_rewards',
+    name: 'Travel Rewards Card',
+    description: 'Earn 2× points on every purchase abroad. No foreign transaction fees.',
+    cta: 'Get offer',
+    badge: 'Popular',
+  },
+  {
+    id: 'home_loan',
+    name: 'Home Loan',
+    description: 'Fixed-rate mortgage from 3.9% p.a. with flexible repayment terms.',
+    cta: 'Learn more',
+    badge: 'Low rate',
+  },
+  {
+    id: 'premium_savings',
+    name: 'Premium Savings Account',
+    description: 'Lock in 5.2% p.a. on deposits of €5,000+ with no fees.',
+    cta: 'Open account',
+    badge: '5.2% p.a.',
+  },
+];
+
+// Maps API product IDs → human-readable display info
+const PRODUCT_DISPLAY: Record<string, { name: string; metric: string; value: string }> = {
+  credit_card:       { name: 'Rewards Credit Card',    metric: 'Credit limit',     value: '€5,000'   },
+  savings_deposit:   { name: 'High-Yield Savings',     metric: 'Balance',          value: '€12,400'  },
+  mortgage:          { name: 'Home Mortgage',           metric: 'Monthly payment',  value: '€780'     },
+  personal_loan:     { name: 'Personal Loan',           metric: 'Outstanding',      value: '€8,200'   },
+  life_insurance:    { name: 'Life Insurance',          metric: 'Monthly premium',  value: '€45'      },
+  travel_insurance:  { name: 'Travel Insurance',        metric: 'Valid until',      value: 'Dec 2026' },
+  etf_starter:       { name: 'ETF Starter Portfolio',   metric: 'Portfolio value',  value: '€3,200'   },
+  etf_growth:        { name: 'ETF Growth Portfolio',    metric: 'Portfolio value',  value: '€8,700'   },
+  mutual_funds:      { name: 'Mutual Funds',            metric: 'Fund value',       value: '€7,800'   },
+  managed_portfolio: { name: 'Managed Portfolio',       metric: 'Portfolio value',  value: '€24,500'  },
+  state_bonds:       { name: 'State Bonds',             metric: 'Bond value',       value: '€5,000'   },
+  private_pension:   { name: 'Private Pension',         metric: 'Accumulated',      value: '€15,200'  },
+  overdraft:         { name: 'Overdraft Facility',      metric: 'Available',        value: '€2,000'   },
+};
+
+const PLACEHOLDER_ACTIVE = [
+  { id: 'savings_deposit', ...PRODUCT_DISPLAY.savings_deposit },
+  { id: 'credit_card',     ...PRODUCT_DISPLAY.credit_card },
+];
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function Toggle({ on, onChange, disabled = false }: { on: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <button
+      role="switch"
+      aria-checked={on}
+      onClick={() => !disabled && onChange(!on)}
+      style={{
+        width: 44, height: 24, borderRadius: 12, flexShrink: 0,
+        background: on ? '#185FA5' : 'var(--color-border-tertiary)',
+        border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
+        position: 'relative', transition: 'background 0.2s',
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      <span style={{
+        position: 'absolute', top: 2,
+        left: on ? 22 : 2, width: 20, height: 20,
+        borderRadius: '50%', background: 'white',
+        transition: 'left 0.2s',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.20)',
+        display: 'block',
+      }} />
+    </button>
+  );
+}
+
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 style={{
+      fontSize: 19, fontWeight: 500,
+      color: 'var(--color-text-primary)',
+      marginBottom: 16, lineHeight: 1.2,
+    }}>
+      {children}
+    </h2>
+  );
+}
+
+function ActiveBadge() {
+  return (
+    <span style={{
+      fontSize: 11, fontWeight: 600, padding: '3px 9px',
+      borderRadius: 20, letterSpacing: '0.03em',
+      background: 'var(--color-badge-good-bg)',
+      color: 'var(--color-badge-good-text)',
+    }}>
+      Active
+    </span>
+  );
+}
+
+interface PieTooltipProps { active?: boolean; payload?: Array<{ name: string; value: number }>; }
+function PieTooltip({ active, payload }: PieTooltipProps) {
+  if (!active || !payload?.length) return null;
+  const item = payload[0];
+  const total = PLACEHOLDER_SPENDING.reduce((s, d) => s + d.amount, 0);
+  const pct = ((item.value / total) * 100).toFixed(1);
+  return (
+    <div style={{
+      background: 'var(--color-background-primary)',
+      border: '1px solid var(--color-border-tertiary)',
+      borderRadius: 8, padding: '9px 13px',
+      fontSize: 12, lineHeight: 1.6,
+      boxShadow: '0 2px 8px rgba(0,0,0,0.10)',
+    }}>
+      <p style={{ fontWeight: 600, marginBottom: 2 }}>{item.name}</p>
+      <p style={{ color: 'var(--color-text-secondary)' }}>€{item.value.toLocaleString()} &nbsp;·&nbsp; {pct}%</p>
+    </div>
+  );
+}
+
+function CustomLegend({ data }: { data: SpendItem[] }) {
+  const total = data.reduce((s, d) => s + d.amount, 0);
+  return (
+    <div style={{
+      display: 'flex', flexWrap: 'wrap', gap: '10px 20px',
+      justifyContent: 'center', marginTop: 12,
+    }}>
+      {data.map((item, i) => (
+        <div key={item.category} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 10, height: 10, borderRadius: 2, background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
+          <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+            {item.category}
+          </span>
+          <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-primary)' }}>
+            {((item.amount / total) * 100).toFixed(0)}%
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
 export default function CustomerPortal() {
   const { t } = useTranslation();
   const [customerId, setCustomerId] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [offerActions, setOfferActions] = useState<Record<string, 'accepted' | 'declined'>>({});
   const queryClient = useQueryClient();
+
+  // Consent state
+  const [gdprConsent, setGdprConsent] = useState(false);
+  const [smsConsent,    setSmsConsent]    = useState(false);
+  const [emailConsent,  setEmailConsent]  = useState(true);
+  const [inAppConsent,  setInAppConsent]  = useState(true);
 
   useEffect(() => {
     const role = localStorage.getItem('role');
@@ -44,11 +220,17 @@ export default function CustomerPortal() {
     setDisplayName(localStorage.getItem('display_name') || uid);
   }, []);
 
+  // ── API queries ────────────────────────────────────────────────────────────
   const { data: profile } = useQuery<Profile>({
     queryKey: ['my-profile', customerId],
     queryFn: () => fetch(`/api/customers/${customerId}/profile`, { headers: authHeader() }).then(r => r.json()),
     enabled: !!customerId, staleTime: 5 * 60 * 1000,
   });
+
+  // Sync GDPR consent with profile once loaded
+  useEffect(() => {
+    if (profile) setGdprConsent(profile.profiling_consent ?? false);
+  }, [profile]);
 
   const { data: spendingData } = useQuery<{ spending: SpendItem[] }>({
     queryKey: ['spending', customerId],
@@ -72,35 +254,49 @@ export default function CustomerPortal() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['my-profile', customerId] }),
   });
 
-  const spending = spendingData?.spending ?? [];
-  const maxSpend = Math.max(...spending.map(s => s.amount), 1);
-  const offers = (offersData?.offers ?? []).slice(0, 5);
+  function handleGdpr(v: boolean) {
+    console.log('[consent] GDPR profiling consent →', v);
+    setGdprConsent(v);
+    consentMutation.mutate(v);
+  }
+  function handleSms(v: boolean)   { console.log('[consent] SMS →', v);    setSmsConsent(v); }
+  function handleEmail(v: boolean) { console.log('[consent] Email →', v);  setEmailConsent(v); }
+  function handleInApp(v: boolean) { console.log('[consent] In-app →', v); setInAppConsent(v); }
+
+  // ── Derived data ───────────────────────────────────────────────────────────
+  const spendingForChart = spendingData?.spending?.length
+    ? spendingData.spending
+    : PLACEHOLDER_SPENDING;
+
+  const apiOffers = offersData?.offers ?? [];
+  const suggestedProducts = apiOffers.length >= 3 ? apiOffers.slice(0, 3) : null;
+
+  const existingIds = profile?.existing_products ?? [];
+  const activeProducts = existingIds.length
+    ? existingIds.map(id => ({ id, ...(PRODUCT_DISPLAY[id] ?? { name: id.replace(/_/g, ' '), metric: 'Status', value: '—' }) }))
+    : PLACEHOLDER_ACTIVE;
 
   function signOut() { localStorage.clear(); window.location.href = '/login'; }
 
-  const sectionLabel: React.CSSProperties = {
-    fontSize: 11, fontWeight: 500, textTransform: 'uppercase',
-    letterSpacing: '0.04em', color: 'var(--color-text-secondary)',
-  };
-  const panel: React.CSSProperties = {
+  // ── Shared styles ──────────────────────────────────────────────────────────
+  const section: React.CSSProperties = {
     background: 'var(--color-background-primary)',
-    border: '0.5px solid var(--color-border-tertiary)',
-    borderRadius: 12, padding: '12px 16px',
+    border: '1px solid var(--color-border-tertiary)',
+    borderRadius: 14, padding: '24px 28px',
   };
-
-  const healthColor = HEALTH_COLOR[profile?.financial_health ?? ''] ?? 'var(--color-text-secondary)';
 
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', minHeight: '100vh',
-      fontFamily: 'var(--font-sans)', fontSize: 13,
+      fontFamily: 'var(--font-sans)', fontSize: 14,
       background: 'var(--color-background-secondary)', color: 'var(--color-text-primary)',
     }}>
-      {/* Header */}
+
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
       <header style={{
-        background: 'var(--color-header-bg)', height: 48,
+        background: 'var(--color-header-bg)', height: 48, flexShrink: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 20px', flexShrink: 0,
+        padding: '0 24px', position: 'sticky', top: 0, zIndex: 100,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.75)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -116,214 +312,318 @@ export default function CustomerPortal() {
         </div>
       </header>
 
-      <div style={{
-        flex: 1, padding: 16,
-        display: 'grid', gridTemplateColumns: '300px 1fr', gap: 16,
-        maxWidth: 1200, margin: '0 auto', width: '100%', boxSizing: 'border-box',
+      {/* ── Scrollable body ────────────────────────────────────────────────── */}
+      <main style={{
+        flex: 1, overflowY: 'auto',
+        padding: '28px 24px',
+        display: 'flex', flexDirection: 'column', gap: 24,
+        maxWidth: 920, width: '100%', margin: '0 auto', boxSizing: 'border-box',
       }}>
 
-        {/* Left column */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* ══════════════════════════════════════════════════════════════════
+            SECTION 1 — SUGGESTED PRODUCTS
+        ══════════════════════════════════════════════════════════════════ */}
+        <section style={section}>
+          <SectionHeading>
+            {offersLoading ? 'Loading suggestions…' : 'Suggested for you'}
+          </SectionHeading>
 
-          {/* Profile Card */}
-          <div style={panel}>
-            <p style={{ ...sectionLabel, marginBottom: 12 }}>{t('cust.myProfile')}</p>
-            {profile ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{
-                    width: 44, height: 44, borderRadius: '50%',
-                    background: 'var(--color-background-light-info)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 16, fontWeight: 600, color: 'var(--color-action)', flexShrink: 0,
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+            gap: 14,
+          }}>
+            {/* API-driven offers if available, otherwise static placeholders */}
+            {suggestedProducts
+              ? suggestedProducts.map(offer => (
+                <div key={offer.offer_id} style={{
+                  border: offer.rank === 1
+                    ? '2px solid var(--color-accent)'
+                    : '1px solid var(--color-border-tertiary)',
+                  borderRadius: 10, padding: '18px 20px',
+                  display: 'flex', flexDirection: 'column', gap: 10,
+                }}>
+                  {offer.rank === 1 && (
+                    <span style={{
+                      alignSelf: 'flex-start', fontSize: 10, fontWeight: 700,
+                      letterSpacing: '0.05em', padding: '2px 8px', borderRadius: 4,
+                      background: 'var(--color-background-light-info)',
+                      color: 'var(--color-action)',
+                    }}>
+                      TOP PICK
+                    </span>
+                  )}
+                  <p style={{ fontSize: 15, fontWeight: 500, lineHeight: 1.3 }}>{offer.product_name}</p>
+                  <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.55, flex: 1 }}>
+                    {offer.personalization_reason}
+                  </p>
+                  <p style={{ fontSize: 10, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+                    ⓘ Această explicație a fost generată automat de un sistem AI
+                  </p>
+                  <button style={{
+                    alignSelf: 'flex-start', marginTop: 4,
+                    padding: '7px 16px', borderRadius: 8,
+                    background: offer.rank === 1 ? '#185FA5' : 'transparent',
+                    color: offer.rank === 1 ? 'white' : 'var(--color-action)',
+                    border: offer.rank === 1 ? 'none' : '1px solid var(--color-action)',
+                    fontSize: 13, fontWeight: 500, cursor: 'pointer',
                   }}>
-                    {displayName.slice(0, 2).toUpperCase()}
-                  </div>
-                  <div>
-                    <p style={{ fontSize: 14, fontWeight: 500 }}>{profile.name || displayName}</p>
-                    <p style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{customerId}</p>
-                  </div>
+                    Get offer
+                  </button>
+                </div>
+              ))
+              : PLACEHOLDER_SUGGESTIONS.map(p => (
+                <div key={p.id} style={{
+                  border: '1px solid var(--color-border-tertiary)',
+                  borderRadius: 10, padding: '18px 20px',
+                  display: 'flex', flexDirection: 'column', gap: 10,
+                }}>
+                  <span style={{
+                    alignSelf: 'flex-start', fontSize: 10, fontWeight: 700,
+                    letterSpacing: '0.05em', padding: '2px 8px', borderRadius: 4,
+                    background: 'var(--color-background-light-info)',
+                    color: 'var(--color-action)',
+                  }}>
+                    {p.badge}
+                  </span>
+                  <p style={{ fontSize: 15, fontWeight: 500, lineHeight: 1.3 }}>{p.name}</p>
+                  <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.55, flex: 1 }}>
+                    {p.description}
+                  </p>
+                  <button style={{
+                    alignSelf: 'flex-start', marginTop: 4,
+                    padding: '7px 16px', borderRadius: 8,
+                    background: 'transparent', color: 'var(--color-action)',
+                    border: '1px solid var(--color-action)',
+                    fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                  }}>
+                    {p.cta}
+                  </button>
+                </div>
+              ))
+            }
+          </div>
+        </section>
+
+        {/* ══════════════════════════════════════════════════════════════════
+            SECTION 2 — ACTIVE PRODUCTS
+        ══════════════════════════════════════════════════════════════════ */}
+        <section style={section}>
+          <SectionHeading>My active products</SectionHeading>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {activeProducts.map((prod, idx) => (
+              <div key={prod.id} style={{
+                display: 'flex', alignItems: 'center',
+                padding: '14px 0', gap: 16,
+                borderTop: idx > 0 ? '1px solid var(--color-border-tertiary)' : 'none',
+              }}>
+                {/* Icon circle */}
+                <div style={{
+                  width: 40, height: 40, borderRadius: 10,
+                  background: 'var(--color-background-secondary)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0, color: 'var(--color-action)',
+                }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+                    <line x1="1" y1="10" x2="23" y2="10" />
+                  </svg>
                 </div>
 
-                {[
-                  { label: t('common.segment'), value: profile.segment },
-                  { label: t('common.riskProfile'), value: profile.risk_profile },
-                  { label: t('common.financialHealth'), value: profile.financial_health, color: healthColor },
-                  { label: t('common.income'), value: `€${(profile.income ?? 0).toLocaleString()}` },
-                  { label: t('common.savings'), value: `€${(profile.savings ?? 0).toLocaleString()}` },
-                ].map(item => (
-                  <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{item.label}</span>
-                    <span style={{ fontSize: 12, fontWeight: 500, color: item.color ?? 'var(--color-text-primary)', textTransform: 'capitalize' }}>
-                      {item.value}
-                    </span>
-                  </div>
-                ))}
+                {/* Name */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 14, fontWeight: 500 }}>{prod.name}</p>
+                  <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>
+                    {prod.metric}: <span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>{prod.value}</span>
+                  </p>
+                </div>
 
-                {(profile.existing_products ?? []).length > 0 && (
-                  <div>
-                    <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 6 }}>{t('cust.currentProducts')}</p>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                      {profile.existing_products.map(p => (
-                        <span key={p} style={{
-                          fontSize: 10, padding: '2px 8px', borderRadius: 12,
-                          background: 'var(--color-background-secondary)', color: 'var(--color-text-secondary)',
-                        }}>{p.replace(/_/g, ' ')}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <ActiveBadge />
               </div>
-            ) : (
-              <p style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{t('cust.loadingProfile')}</p>
-            )}
+            ))}
           </div>
+        </section>
 
-          {/* Consent */}
-          <div style={panel}>
-            <p style={{ ...sectionLabel, marginBottom: 10 }}>{t('cust.consentTitle')}</p>
-            <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', lineHeight: 1.6, marginBottom: 12 }}>
-              {t('cust.consentDesc')}
+        {/* ══════════════════════════════════════════════════════════════════
+            SECTION 3 — MY TRANSACTIONS
+        ══════════════════════════════════════════════════════════════════ */}
+        <section style={section}>
+          <SectionHeading>My transactions</SectionHeading>
+
+          {/* 3a — Pie chart */}
+          <div style={{ marginBottom: 32 }}>
+            <p style={{
+              fontSize: 12, fontWeight: 500, textTransform: 'uppercase',
+              letterSpacing: '0.05em', color: 'var(--color-text-secondary)', marginBottom: 16,
+            }}>
+              Spending breakdown — last 30 days
             </p>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 12, fontWeight: 500, color: profile?.profiling_consent ? 'var(--color-positive)' : 'var(--color-text-muted)' }}>
-                {profile?.profiling_consent ? t('cust.consentEnabled') : t('cust.consentDisabled')}
-              </span>
-              <button
-                onClick={() => consentMutation.mutate(!(profile?.profiling_consent ?? true))}
-                disabled={consentMutation.isPending || !profile}
-                style={{
-                  fontSize: 11, fontWeight: 500,
-                  background: profile?.profiling_consent ? '#A32D2D' : '#3B6D11',
-                  color: 'white', border: 'none', borderRadius: 8,
-                  padding: '5px 14px', cursor: 'pointer',
-                  opacity: consentMutation.isPending ? 0.6 : 1,
-                }}
-              >
-                {consentMutation.isPending ? '…' : profile?.profiling_consent ? t('cust.withdrawConsent') : t('cust.giveConsent')}
-              </button>
-            </div>
+
+            <ResponsiveContainer width="100%" height={260}>
+              <PieChart>
+                <Pie
+                  data={spendingForChart}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={72}
+                  outerRadius={108}
+                  paddingAngle={3}
+                  dataKey="amount"
+                  nameKey="category"
+                  strokeWidth={0}
+                >
+                  {spendingForChart.map((_, index) => (
+                    <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip content={<PieTooltip />} />
+              </PieChart>
+            </ResponsiveContainer>
+
+            <CustomLegend data={spendingForChart} />
           </div>
 
-          {/* Spending */}
-          <div style={panel}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <p style={sectionLabel}>{t('cust.spendingPatterns')}</p>
-              <p style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{t('cust.last30Days')}</p>
-            </div>
-            {spending.length === 0 ? (
-              <p style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{t('cust.noSpending')}</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {spending.map((item, idx) => (
-                  <div key={item.category} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ width: 90, fontSize: 11, color: 'var(--color-text-primary)', flexShrink: 0 }}>{item.category}</span>
-                    <div style={{ flex: 1, height: 7, borderRadius: 3, background: 'var(--color-background-secondary)', overflow: 'hidden' }}>
-                      <div style={{
-                        height: 7, borderRadius: 3, width: `${(item.amount / maxSpend) * 100}%`,
-                        background: item.isOther ? 'var(--color-neutral-bar)' : `rgba(55,138,221,${BAR_OPACITIES[idx] ?? 0.25})`,
-                        transition: 'width 0.4s ease',
-                      }} />
-                    </div>
-                    <span style={{ width: 60, fontSize: 11, textAlign: 'right', color: 'var(--color-text-secondary)', flexShrink: 0 }}>
-                      €{item.amount.toLocaleString()}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+          {/* 3b — Transaction list */}
+          <div>
+            <p style={{
+              fontSize: 12, fontWeight: 500, textTransform: 'uppercase',
+              letterSpacing: '0.05em', color: 'var(--color-text-secondary)', marginBottom: 12,
+            }}>
+              All transactions
+            </p>
 
-        {/* Right column — Offers */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={panel}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <p style={sectionLabel}>{t('cust.personalizedOffers')}</p>
-              {offersLoading && <p style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{t('cust.scoring')}</p>}
+            {/* Header row */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '110px 1fr 140px 90px',
+              padding: '6px 0 8px',
+              borderBottom: '1px solid var(--color-border-tertiary)',
+              fontSize: 11, fontWeight: 500, textTransform: 'uppercase',
+              letterSpacing: '0.04em', color: 'var(--color-text-muted)',
+              gap: 12,
+            }}>
+              <span>Date</span>
+              <span>Description</span>
+              <span>Category</span>
+              <span style={{ textAlign: 'right' }}>Amount</span>
             </div>
 
-            {!profile?.profiling_consent && (
-              <div style={{
-                background: 'var(--color-warning-bg)',
-                border: `0.5px solid var(--color-warning-border)`,
-                borderRadius: 8, padding: '10px 14px', marginBottom: 12,
-                fontSize: 12, color: 'var(--color-warning-text)', lineHeight: 1.5,
+            {PLACEHOLDER_TRANSACTIONS.map((tx, i) => (
+              <div key={i} style={{
+                display: 'grid',
+                gridTemplateColumns: '110px 1fr 140px 90px',
+                padding: '11px 0',
+                borderBottom: '1px solid var(--color-border-tertiary)',
+                gap: 12, alignItems: 'center',
+                fontSize: 13,
               }}>
-                {t('cust.noConsentWarning')}
+                <span style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
+                  {new Date(tx.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                </span>
+                <span style={{ color: 'var(--color-text-primary)', fontWeight: tx.amount > 0 ? 500 : 400 }}>
+                  {tx.description}
+                </span>
+                <span style={{
+                  fontSize: 11, padding: '2px 8px', borderRadius: 10,
+                  background: 'var(--color-background-secondary)',
+                  color: 'var(--color-text-secondary)',
+                  whiteSpace: 'nowrap', justifySelf: 'start',
+                }}>
+                  {tx.category}
+                </span>
+                <span style={{
+                  textAlign: 'right', fontWeight: 500,
+                  color: tx.amount > 0 ? 'var(--color-positive)' : 'var(--color-negative)',
+                }}>
+                  {tx.amount > 0 ? '+' : ''}€{Math.abs(tx.amount).toFixed(2)}
+                </span>
               </div>
-            )}
-
-            {!offersLoading && offers.length === 0 ? (
-              <p style={{ fontSize: 12, color: 'var(--color-text-muted)', padding: '8px 0' }}>{t('cust.noOffers')}</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {offers.map(offer => {
-                  const isTop = offer.rank === 1;
-                  const action = offerActions[offer.offer_id];
-                  return (
-                    <div key={offer.offer_id} style={{
-                      border: isTop ? '2px solid var(--color-accent)' : '0.5px solid var(--color-border-tertiary)',
-                      borderRadius: 8, padding: '12px 14px',
-                      opacity: action ? 0.65 : 1, transition: 'opacity 0.2s',
-                    }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                            {isTop && (
-                              <span style={{ fontSize: 10, fontWeight: 500, background: 'var(--color-background-light-info)', color: 'var(--color-action)', padding: '2px 6px', borderRadius: 4 }}>
-                                {t('common.topPick')}
-                              </span>
-                            )}
-                            <span style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                              {offer.channel}
-                            </span>
-                          </div>
-                          <p style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>{offer.product_name}</p>
-                          <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.55, marginBottom: 6 }}>
-                            {offer.personalization_reason}
-                          </p>
-                          <p style={{ fontSize: 10, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
-                            {t('cust.aiDisclosure')}
-                          </p>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
-                          <span style={{ fontSize: 18, fontWeight: 600, color: isTop ? 'var(--color-action)' : 'var(--color-text-primary)' }}>
-                            {Math.round(offer.relevance_score * 100)}%
-                          </span>
-                          <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>{t('cust.match')}</span>
-                        </div>
-                      </div>
-
-                      {action ? (
-                        <div style={{
-                          marginTop: 10, padding: '6px 12px', borderRadius: 6,
-                          background: action === 'accepted' ? 'var(--color-badge-good-bg)' : 'var(--color-background-secondary)',
-                          color: action === 'accepted' ? 'var(--color-badge-good-text)' : 'var(--color-text-muted)',
-                          fontSize: 12, fontWeight: 500, textAlign: 'center',
-                        }}>
-                          {action === 'accepted' ? t('cust.acceptedMsg') : t('cust.declinedMsg')}
-                        </div>
-                      ) : (
-                        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                          <button
-                            onClick={() => setOfferActions(prev => ({ ...prev, [offer.offer_id]: 'accepted' }))}
-                            style={{ flex: 1, fontSize: 12, fontWeight: 500, background: '#185FA5', color: 'white', border: 'none', borderRadius: 8, padding: '7px 0', cursor: 'pointer' }}
-                          >{t('cust.accept')}</button>
-                          <button
-                            onClick={() => setOfferActions(prev => ({ ...prev, [offer.offer_id]: 'declined' }))}
-                            style={{ flex: 1, fontSize: 12, fontWeight: 500, background: 'transparent', color: 'var(--color-text-secondary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 8, padding: '7px 0', cursor: 'pointer' }}
-                          >{t('cust.decline')}</button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            ))}
           </div>
-        </div>
-      </div>
+        </section>
+
+        {/* ══════════════════════════════════════════════════════════════════
+            SECTION 4 — CONSENT & PREFERENCES
+        ══════════════════════════════════════════════════════════════════ */}
+        <section style={section}>
+          <SectionHeading>Privacy & communication preferences</SectionHeading>
+          <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 20, lineHeight: 1.6 }}>
+            Control how the bank uses your data and reaches you. Changes take effect immediately.
+          </p>
+
+          {[
+            {
+              key: 'gdpr',
+              label: 'Data processing consent',
+              description: 'I consent to the bank processing my personal and financial data to generate personalised product recommendations, as described in the Privacy Policy.',
+              on: gdprConsent,
+              onChange: handleGdpr,
+              warning: !gdprConsent
+                ? 'Turning this off will disable personalised recommendations.'
+                : null,
+            },
+            {
+              key: 'sms',
+              label: 'SMS notifications',
+              description: 'Allow the bank to contact me with offers and account updates via text message.',
+              on: smsConsent,
+              onChange: handleSms,
+              warning: null,
+            },
+            {
+              key: 'email',
+              label: 'Email notifications',
+              description: 'Allow the bank to send me personalised offers and important account information by email.',
+              on: emailConsent,
+              onChange: handleEmail,
+              warning: null,
+            },
+            {
+              key: 'inapp',
+              label: 'In-app notifications',
+              description: 'Show me personalised offers and alerts directly inside this app.',
+              on: inAppConsent,
+              onChange: handleInApp,
+              warning: null,
+            },
+          ].map((item, idx, arr) => (
+            <div key={item.key}>
+              <div style={{
+                display: 'flex', alignItems: 'flex-start', gap: 16,
+                padding: '18px 0',
+                borderTop: idx > 0 ? '1px solid var(--color-border-tertiary)' : 'none',
+              }}>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 4, lineHeight: 1.3 }}>
+                    {item.label}
+                  </p>
+                  <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.6, maxWidth: 580 }}>
+                    {item.description}
+                  </p>
+                </div>
+                <div style={{ paddingTop: 2, flexShrink: 0 }}>
+                  <Toggle on={item.on} onChange={item.onChange} />
+                </div>
+              </div>
+
+              {item.warning && (
+                <div style={{
+                  marginTop: -8, marginBottom: 8,
+                  padding: '8px 12px',
+                  background: 'var(--color-warning-bg)',
+                  border: '1px solid var(--color-warning-border)',
+                  borderRadius: 8,
+                  fontSize: 12, color: 'var(--color-warning-text)', lineHeight: 1.5,
+                }}>
+                  ⚠ {item.warning}
+                </div>
+              )}
+            </div>
+          ))}
+        </section>
+
+      </main>
     </div>
   );
 }
