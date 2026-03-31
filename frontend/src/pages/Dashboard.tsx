@@ -29,6 +29,12 @@ const acceptanceData = [
   { month: "Mar", rate: 7.4 },
 ];
 
+export async function getServerSideProps() {
+  return {
+    props: {},
+  };
+}
+
 export default function Dashboard() {
   const customerId = "cust_001";
   const { data, isLoading, error } = useQuery({

@@ -7,7 +7,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc && \
     rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY services/worker/requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 ### Stage 2: Runtime
@@ -20,7 +20,7 @@ RUN groupadd --gid 1000 appuser && \
 
 COPY --from=builder /install /usr/local
 
-COPY . /app/services/worker/
+COPY . /app/
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

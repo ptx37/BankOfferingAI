@@ -20,6 +20,12 @@ const PRODUCT_TYPE_LABELS: Record<string, string> = {
   loan: "Loans",
 };
 
+export async function getServerSideProps() {
+  return {
+    props: {},
+  };
+}
+
 export default function Offers() {
   const customerId = "cust_001";
   const [filter, setFilter] = useState<string>("all");
