@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 ALLOWED_ORIGINS = [
     "https://bankofferingai.example.com",
     "http://localhost:3000",
+    "http://172.24.208.80:3000",
 ]
 
 
@@ -86,6 +87,24 @@ def create_app() -> FastAPI:
     async def health_check():
         """Liveness probe endpoint."""
         return {"status": "healthy", "service": "bank-offering-api"}
+
+    @app.post("/auth/token", tags=["auth"])
+    async def get_demo_token(customer_id: str = "demo-001"):
+        """Generate a demo JWT token for development/testing."""
+        import os
+        from datetime import datetime, timedelta
+        from jose import jwt as jose_jwt
+
+        secret = os.getenv("JWT_SECRET_KEY", "change-me-in-production")
+        payload = {
+            "customer_id": customer_id,
+            "sub": customer_id,
+            "aud": os.getenv("JWT_AUDIENCE", "bank-offering-api"),
+            "iss": os.getenv("JWT_ISSUER", "bank-auth-service"),
+            "exp": datetime.utcnow() + timedelta(hours=24),
+        }
+        token = jose_jwt.encode(payload, secret, algorithm="HS256")
+        return {"access_token": token, "token_type": "bearer", "customer_id": customer_id}
 
     return app
 

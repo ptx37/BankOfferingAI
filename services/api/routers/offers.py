@@ -51,16 +51,63 @@ async def _fetch_customer_profile(
         return profile
 
 
+def _profile_to_features(profile: CustomerProfile) -> dict:
+    """Map CustomerProfile to the flat features dict expected by the worker."""
+    return {
+        "age": profile.age,
+        "income": profile.income,
+        "savings": profile.savings,
+        "monthly_savings": profile.savings / 12 if profile.savings else 0,
+        "avg_expenses": profile.income / 12 * 0.6 if profile.income else 0,
+        "idle_cash": max(0, profile.savings - profile.debt),
+        "debt_to_income": profile.debt / profile.income if profile.income else 0,
+        "savings_rate": (profile.savings / 12) / (profile.income / 12) if profile.income else 0,
+        "dominant_spend_category": "general",
+        "investment_gap_flag": 1 if profile.investor_readiness > 0.5 else 0,
+        "risk_profile": profile.risk_profile,
+        "marital_status": profile.marital_status,
+        "dependents_count": profile.dependents_count,
+        "homeowner_status": profile.homeowner_status,
+        "account_tenure_years": 3.0,
+        "events": [],
+    }
+
+
+_CHANNEL_MAP = {"push": "push", "email": "email", "in_app": "in_app"}
+_TYPE_MAP = {
+    "credit_card": "credit_card", "personal_loan": "personal_loan",
+    "mortgage": "mortgage", "savings_account": "savings_account",
+    "investment": "investment", "insurance": "insurance", "overdraft": "overdraft",
+}
+
+
 async def _call_worker_scoring(profile: CustomerProfile) -> list[Offer]:
     """Call the worker service scorer/ranker pipeline and return ranked offers."""
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(
             f"{WORKER_BASE_URL}/score-and-rank",
-            json=profile.model_dump(mode="json"),
+            json={"customer_id": profile.customer_id, "features": _profile_to_features(profile)},
         )
         response.raise_for_status()
         data = response.json()
-        return [Offer.model_validate(o) for o in data["offers"]]
+
+    offers = []
+    for o in data.get("offers", []):
+        product_type = _TYPE_MAP.get(o.get("category", ""), "investment")
+        channel = _CHANNEL_MAP.get(o.get("recommended_channel", "in_app"), "in_app")
+        offers.append(Offer(
+            offer_id=o["offer_id"],
+            product_id=o["product_id"],
+            product_name=o["product_name"],
+            product_type=product_type,
+            relevance_score=o["relevance_score"],
+            confidence_score=o["confidence_score"],
+            personalization_reason=o["personalization_reason"],
+            rank=o["rank"],
+            channel=channel,
+            cta_url=f"/products/{o['product_id']}",
+        ))
+    return offers
 
 
 @router.get(

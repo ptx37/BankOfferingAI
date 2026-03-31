@@ -111,12 +111,15 @@ services:
       context: .
       dockerfile: services/worker/Dockerfile
     container_name: bankoffer-worker
+    command: ["uvicorn", "services.worker.main:app", "--host", "0.0.0.0", "--port", "8001"]
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-bankofferingai}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
       KAFKA_BROKER: kafka:9092
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-sk-test}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "0.0.0.0:8001:8001"
     depends_on:
       postgres:
         condition: service_healthy
@@ -124,6 +127,11 @@ services:
         condition: service_healthy
       kafka:
         condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - bankoffer-network
     restart: unless-stopped
@@ -156,7 +164,8 @@ services:
       dockerfile: frontend/Dockerfile
     container_name: bankoffer-frontend
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_API_URL: http://api:8000
+      API_URL: http://api:8000
     ports:
       - "0.0.0.0:3000:3000"
     depends_on:

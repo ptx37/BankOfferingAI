@@ -113,19 +113,33 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service:
-          - services/api
-          - services/worker
-          - services/notification
+        include:
+          - service: api
+            dockerfile: services/api/Dockerfile
+          - service: worker
+            dockerfile: services/worker/Dockerfile
+          - service: notification
+            dockerfile: services/notification/Dockerfile
+          - service: frontend
+            dockerfile: frontend/Dockerfile
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build Docker image
+        # Build context is always the repo root — Dockerfiles use COPY paths
+        # relative to the root (e.g. COPY services/api/requirements.txt .).
         run: |
-          if [ -f "${{ matrix.service }}/Dockerfile" ]; then
-            docker build --no-cache -t bankoffer-${{ matrix.service }}:ci "${{ matrix.service }}"
+          if [ -f "${{ matrix.dockerfile }}" ]; then
+            docker build \
+              --no-cache \
+              -f "${{ matrix.dockerfile }}" \
+              -t bankoffer-${{ matrix.service }}:ci \
+              .
           else
-            echo "No Dockerfile in ${{ matrix.service }} — skipping"
+            echo "No Dockerfile at ${{ matrix.dockerfile }} — skipping"
           fi
 
   gitleaks:

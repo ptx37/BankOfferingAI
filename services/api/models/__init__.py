@@ -98,3 +98,18 @@ class WebhookEvent(BaseModel):
     customer_id: str = Field(..., description="Customer the event relates to")
     timestamp: datetime = Field(..., description="Event timestamp (UTC)")
     payload: dict[str, Any] = Field(..., description="Arbitrary event payload data")
+
+
+class Transaction(BaseModel):
+    transaction_id: str = Field(..., description="Unique transaction identifier")
+    customer_id: str = Field(..., description="Customer identifier")
+    amount: float = Field(..., description="Transaction amount")
+    currency: str = Field(default="USD", description="Currency code")
+    merchant: str = Field(default="", description="Merchant name")
+    category: str = Field(default="", description="Transaction category")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Transaction timestamp (UTC)")
+
+
+class WebhookPayload(BaseModel):
+    event_type: str = Field(..., description="Type of webhook event")
+    transactions: list[Transaction] = Field(..., description="List of transactions in the event")

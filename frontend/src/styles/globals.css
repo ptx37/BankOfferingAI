@@ -1,0 +1,49 @@
+:root {
+  --color-primary: #0C447C;
+  --color-action: #185FA5;
+  --color-accent: #378ADD;
+  --color-background-primary: #ffffff;
+  --color-background-secondary: #F3F4F6;
+  --color-background-light-info: #E6F1FB;
+  --color-text-primary: #111827;
+  --color-text-secondary: #6B7280;
+  --color-text-muted: #9CA3AF;
+  --color-border-tertiary: #E5E7EB;
+  --color-positive: #3B6D11;
+  --color-negative: #A32D2D;
+  --color-badge-good-bg: #EAF3DE;
+  --color-badge-good-text: #3B6D11;
+  --color-badge-consider-bg: #FAEEDA;
+  --color-badge-consider-text: #854F0B;
+  --color-neutral-bar: #B4B2A9;
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #__next {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-text-primary);
+  background: var(--color-background-secondary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button {
+  font-family: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}

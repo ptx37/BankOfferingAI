@@ -128,6 +128,36 @@ def _parse_llm_response(
     return scored
 
 
+def _rule_based_fallback(
+    profile: ProfileResult,
+    products: list[dict[str, Any]],
+) -> list[ScoredProduct]:
+    """Signal-based scoring used when the LLM is unavailable."""
+    customer_signals = set(profile.context_signals or [])
+    scored: list[ScoredProduct] = []
+    for p in products:
+        product_signals = set(p.get("trigger_signals", []))
+        signal_overlap = len(customer_signals & product_signals)
+        relevance = min(1.0, 0.30 + signal_overlap * 0.20)
+        confidence = 0.50 if signal_overlap > 0 else 0.30
+        reason = (
+            f"Based on your financial profile, {p['product_name']} may be a good fit."
+        )
+        scored.append(
+            ScoredProduct(
+                product_id=p["product_id"],
+                product_name=p["product_name"],
+                category=p["category"],
+                relevance_score=round(relevance, 4),
+                confidence_score=round(confidence, 4),
+                personalization_reason=reason,
+                trigger_signals=p.get("trigger_signals", []),
+                recommended_channel=p.get("recommended_channel", "push"),
+            )
+        )
+    return scored
+
+
 def score_products(
     profile: ProfileResult,
     llm_client: LLMClient,
@@ -146,20 +176,8 @@ def score_products(
         )
         scored = _parse_llm_response(raw_response, products)
     except Exception:
-        logger.exception("LLM scoring failed for customer %s, using zero scores", profile.customer_id)
-        scored = [
-            ScoredProduct(
-                product_id=p["product_id"],
-                product_name=p["product_name"],
-                category=p["category"],
-                relevance_score=0.0,
-                confidence_score=0.0,
-                personalization_reason="Scoring unavailable",
-                trigger_signals=p.get("trigger_signals", []),
-                recommended_channel=p.get("recommended_channel", "push"),
-            )
-            for p in products
-        ]
+        logger.exception("LLM scoring failed for customer %s, using rule-based fallback", profile.customer_id)
+        scored = _rule_based_fallback(profile, products)
 
     scored.sort(key=lambda s: s.relevance_score, reverse=True)
     logger.info("Scored %d products for customer %s", len(scored), profile.customer_id)

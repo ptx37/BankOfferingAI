@@ -1,190 +1,261 @@
 # BankOffer AI
 
-Real-time, AI-powered personalization platform that delivers hyper-targeted financial product offers to bank customers based on their transaction behavior, risk profile, and life-stage signals.
+> **BETA_RC_1.0.0** — Real-time, AI-powered financial product personalization platform.  
+> Bank agents use the **Customer Offer Center** to view customer spending patterns and send personalized product recommendations.
 
-## Architecture Overview
+---
 
-```
-                         +------------------+
-                         |   Mobile / Web   |
-                         +--------+---------+
-                                  |
-                           HTTPS / WSS
-                                  |
-                    +-------------v--------------+
-                    |     API Gateway (Kong)      |
-                    +-------------+--------------+
-                                  |
-                    +-------------v--------------+
-                    |   Offer API  (FastAPI)      |
-                    |   /v1/offers  /v1/profile   |
-                    +---+--------+----------+----+
-                        |        |          |
-              +---------+   +----v----+  +--v-----------+
-              |             | Feature |  | Notification |
-              |             | Store   |  | Router       |
-              |             | (Feast) |  +--+-----------+
-              |             +----+----+     |    |    |
-              |                  |        Push Email InApp
-              |                  |
-     +--------v--------+  +-----v---------+
-     | ML Pipeline      |  | Data Pipeline  |
-     | - Profiler       |  | - Kafka        |
-     | - Scorer         |  | - Airflow      |
-     | - Ranker         |  | - dbt          |
-     +--------+---------+  +-------+--------+
-              |                     |
-              +----------+----------+
-                         |
-                +--------v---------+
-                |   PostgreSQL 16  |
-                |   Redis 7        |
-                +------------------+
-```
+## Quick Start
 
-### Flow
-
-1. **Ingest** -- Transaction events arrive via Kafka topics. Consumers normalize the data and load derived features into the Feast feature store.
-2. **Profile** -- The customer profiler aggregates features (spending patterns, income signals, product holdings) into a real-time profile vector.
-3. **Score** -- The product scorer evaluates every eligible banking product against the profile. An XGBoost model predicts conversion probability.
-4. **Rank** -- The offer ranker applies business rules, A/B test assignments, and diversity constraints to produce a final ranked list.
-5. **Serve** -- The FastAPI offer endpoint returns the top-N offers for a given customer, with sub-100ms P99 latency.
-6. **Notify** -- The notification router delivers the winning offer through the customer's preferred channel (push, email, or in-app banner).
-
-## Tech Stack
-
-| Layer              | Technology                                              |
-|--------------------|---------------------------------------------------------|
-| Language           | Python 3.12+, TypeScript (frontend)                    |
-| API Framework      | FastAPI, Uvicorn                                        |
-| ML / AI            | scikit-learn, XGBoost, sentence-transformers, MLflow    |
-| Data Pipeline      | Apache Kafka, Apache Airflow, dbt                       |
-| Feature Store      | Feast (Redis + PostgreSQL backend)                      |
-| Database           | PostgreSQL 16, Redis 7                                  |
-| Infrastructure     | Terraform, Helm, Kubernetes (EKS)                       |
-| GitOps             | ArgoCD, Kustomize, GitHub Actions                       |
-| Observability      | Prometheus, Grafana, Loki, Alertmanager                 |
-| Security           | OPA/Gatekeeper, Trivy, Gitleaks, Cosign                 |
-| Testing            | pytest, Cypress, k6, Pact                               |
-
-## Project Structure
-
-```
-BankOfferingAI/
-  audit.yaml                 # Append-only agent state and audit log
-  CLAUDE.md                  # Agent instructions for Claude Code
-  README.md                  # This file
-  infra/
-    terraform/               # EKS cluster, RDS, ElastiCache, VPC modules
-    helm/                    # Helm charts for each service
-    argocd/                  # ArgoCD Application manifests
-  services/
-    api/                     # FastAPI offer service
-    worker/                  # Kafka consumers, async background jobs
-    notification/            # Multi-channel notification service
-  data/
-    airflow/                 # Airflow DAG definitions
-    dbt/                     # dbt models for analytics warehouse
-    kafka/                   # Avro schemas, topic configs
-  ml/
-    profiler/                # Customer profile builder
-    scorer/                  # Product conversion-probability model
-    ranker/                  # Offer ranking with business rules
-    registry/                # MLflow model registry configuration
-  frontend/                  # Next.js customer dashboard
-  gitops/
-    base/                    # Kustomize base manifests
-    overlays/                # staging / production overlays
-  observability/
-    prometheus/              # Recording and alerting rules
-    grafana/                 # Dashboard JSON definitions
-    loki/                    # Log aggregation config
-  security/
-    opa/                     # OPA/Gatekeeper policies
-    sbom/                    # Software bill of materials
-  tests/
-    unit/                    # pytest unit tests
-    integration/             # pytest integration tests
-    e2e/                     # Cypress end-to-end tests
-    load/                    # k6 load test scripts
-    contract/                # Pact consumer/provider tests
-  docs/
-    architecture.md          # System architecture document
-    agent-communication.md   # Agent protocol specification
-    runbook.md               # Operational runbook
-  .github/
-    workflows/               # CI/CD GitHub Actions
-    CODEOWNERS               # Code ownership rules
-    pull_request_template.md # PR template with agent-result block
-```
-
-## Getting Started
+Get the full stack running in under 5 minutes.
 
 ### Prerequisites
 
-- Python 3.12+
-- Docker and Docker Compose
-- kubectl and Helm 3
-- Terraform 1.5+
-- Node.js 20+ (for frontend)
+| Tool | Minimum version | Check |
+|------|----------------|-------|
+| Docker | 24+ | `docker --version` |
+| Docker Compose | 1.29+ or v2 | `docker-compose --version` |
+| Git | any | `git --version` |
 
-### Local Development
+> **Windows users:** run everything inside WSL 2. Docker Desktop with WSL backend works out of the box.
+
+### 1. Clone
 
 ```bash
-# Clone the repository
 git clone https://github.com/ptx37/BankOfferingAI.git
 cd BankOfferingAI
-
-# Create a Python virtual environment
-python -m venv .venv
-source .venv/bin/activate   # Linux/macOS
-.venv\Scripts\activate      # Windows
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Start infrastructure services
-docker compose up -d   # PostgreSQL, Redis, Kafka, Zookeeper
-
-# Run database migrations
-alembic upgrade head
-
-# Start the API server
-uvicorn services.api.main:app --reload --port 8000
-
-# Run tests
-pytest tests/unit/ -v
 ```
 
-### Deploying to Kubernetes
-
-The platform follows a GitOps workflow. Merging to `main` triggers ArgoCD to sync all manifests under `gitops/overlays/production/`.
+### 2. Configure environment
 
 ```bash
-# Provision infrastructure (first time only)
-cd infra/terraform
-terraform init && terraform apply
-
-# Install ArgoCD app-of-apps
-kubectl apply -f infra/argocd/app-of-apps.yaml
-
-# ArgoCD handles everything from here -- monitor via:
-argocd app list
-argocd app get bankoffer-api
+cp .env.example .env
+# Optional: add your ANTHROPIC_API_KEY to .env for AI-powered scoring.
+# Without it the worker falls back to rule-based scoring automatically.
 ```
 
-## Multi-Agent CI/CD
+### 3. Deploy
 
-This repository is maintained by a hierarchy of Claude Code agents. The orchestrator agent coordinates domain-specific agents (infra, data, AI/ML, API, notifications) and sub-agents (GitOps, security, observability, QA). All agent state lives in `audit.yaml` at the repo root. See `docs/agent-communication.md` for the full protocol specification.
+```bash
+chmod +x .github/scripts/deploy-local.sh
+./.github/scripts/deploy-local.sh
+```
 
-## Contributing
+The script builds all images (context = repo root), starts infra, waits for health checks, deploys app services with correct network aliases, and seeds demo data.
 
-1. Fork the repository.
-2. Create a feature branch from `main`.
-3. Make your changes and add tests.
-4. Open a pull request using the provided PR template.
-5. Ensure all CI checks pass before requesting review.
+### 4. Open the app
+
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| **Customer Offer Center** | http://localhost:3000 | Agent ID: `demo-001` |
+| API docs (Swagger) | http://localhost:8000/docs | — |
+| Worker health | http://localhost:8001/health | — |
+| Grafana | http://localhost:3001 | admin / admin123 |
+| pgAdmin | http://localhost:5050 | admin@example.com / admin123 |
+| Redis Commander | http://localhost:8081 | — |
+
+> **WSL / Windows access:** use the WSL IP instead of `localhost`.  
+> Find it with: `ip addr show eth0 | grep 'inet '`
+
+---
+
+## GitOps with Self-Hosted Runner
+
+Every push to `main` triggers an automatic re-deploy on your local machine via GitHub Actions.
+
+### Install the runner (one-time)
+
+1. Go to your GitHub repo → **Settings → Actions → Runners → New self-hosted runner**
+2. Follow the Linux/Windows instructions to download and configure the runner
+3. Start it: `./run.sh` (or install as a service with `./svc.sh install && ./svc.sh start`)
+
+Once running, every `git push origin main` will:
+- Build all Docker images with the correct repo-root build context
+- Stop old app containers
+- Start new containers with proper network aliases (`api`, `worker`, `frontend`)
+- Seed demo data into Redis
+- Post a deployment summary to the Actions tab
+
+### Required runner secrets
+
+Set these in **GitHub → Settings → Secrets and variables → Actions**:
+
+| Secret | Description |
+|--------|-------------|
+| `ANTHROPIC_API_KEY` | Your Anthropic key (optional — fallback works without it) |
+| `POSTGRES_PASSWORD` | Override default `postgres` |
+| `REDIS_PASSWORD` | Override default `redis123` |
+
+### Custom runner Docker image
+
+A reproducible runner image is defined in `.github/runner-image/Dockerfile`.  
+It includes Docker CLI, Python 3.11, Node.js 20, Helm, and Terraform.
+
+Build and push it via:
+```bash
+# Trigger manually or push a change to .github/runner-image/
+# GitHub Actions → build-runner-image workflow
+```
+
+Use it in CI jobs:
+```yaml
+jobs:
+  my-job:
+    runs-on: self-hosted
+    container:
+      image: ghcr.io/ptx37/bankofferingai/runner:latest
+```
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Browser / Agent UI  (Next.js · port 3000)                      │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ /api/* proxy
+┌───────────────────────────▼─────────────────────────────────────┐
+│  Offer API  (FastAPI · port 8000)                                │
+│  POST /auth/token   GET /offers/{customer_id}   POST /webhooks  │
+└──────┬──────────────────────────┬───────────────────────────────┘
+       │ score-and-rank            │ events
+┌──────▼──────────┐    ┌──────────▼──────────────┐
+│ Worker / Scorer  │    │ Kafka · Zookeeper        │
+│ (FastAPI · 8001) │    │ (topic: bank.transactions│
+│ Rule-based + LLM │    └──────────┬───────────────┘
+└──────────────────┘               │
+                         ┌─────────▼──────────┐
+                         │ Notification Service│
+                         └────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│  Data Layer                                                     │
+│  PostgreSQL 16 (port 5432)  ·  Redis 7 (port 6379)            │
+└────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│  Observability                                                  │
+│  Prometheus (9090)  ·  Grafana (3001)                          │
+└────────────────────────────────────────────────────────────────┘
+```
+
+### Request flow
+
+1. **Agent opens app** → frontend (Next.js) proxies `/api/*` to the FastAPI offer service
+2. **Login** → `POST /auth/token?customer_id=demo-001` returns a 24-hour JWT
+3. **Dashboard** → `GET /offers/{customer_id}` fetches the customer profile from Redis, calls the worker to score products, returns top-5 ranked offers
+4. **Worker scores** → builds a profile signal vector, calls Claude claude-sonnet-4-20250514 (or falls back to rule-based scoring), ranks offers by relevance
+5. **Agent sends offer** → "Send" button on offer card (notification routing in progress)
+
+---
+
+## Repository Structure
+
+```
+/
+├── services/
+│   ├── api/              # FastAPI offer service (port 8000)
+│   ├── worker/           # Scoring + ranking service (port 8001)
+│   └── notification/     # Push / email / in-app router
+├── frontend/             # Next.js agent dashboard (port 3000)
+├── data/                 # Airflow DAGs, dbt models, Kafka schemas
+├── ml/                   # Customer profiler, product scorer, ranker
+├── infra/                # Terraform, Helm charts, ArgoCD apps
+├── gitops/               # ArgoCD Application CRDs, Kustomize overlays
+├── observability/        # Prometheus rules, Grafana dashboards
+├── security/             # OPA policies, SBOM, secret rotation
+├── tests/                # Unit, integration, e2e, load, contract
+├── docs/                 # Architecture docs, runbooks, ADRs
+├── .github/
+│   ├── runner-image/     # Dockerfile for the CI/CD runner image
+│   ├── scripts/          # deploy-local.sh and other automation
+│   └── workflows/        # GitHub Actions pipelines
+├── docker-compose.yml
+├── .env.example
+└── CHANGELOG.md
+```
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Language | Python 3.11+, TypeScript |
+| API | FastAPI + Uvicorn |
+| ML / AI | scikit-learn, XGBoost, Anthropic Claude |
+| Data Pipeline | Apache Kafka, Airflow, dbt |
+| Feature Store | Feast (Redis + PostgreSQL) |
+| Database | PostgreSQL 16, Redis 7 |
+| Infrastructure | Terraform, Helm, Kubernetes (EKS) |
+| GitOps | ArgoCD, Kustomize, GitHub Actions |
+| Observability | Prometheus, Grafana |
+| Security | OPA/Gatekeeper, Trivy, Gitleaks |
+| Frontend | Next.js 14 / React 18 |
+
+---
+
+## Development
+
+### Run a single service
+
+```bash
+# API only (with hot reload)
+uvicorn services.api.main:app --reload --port 8000
+
+# Worker only
+uvicorn services.worker.main:app --reload --port 8001
+```
+
+### Build images manually
+
+```bash
+# Always use repo root as the build context
+docker build -f services/api/Dockerfile          -t bankoffer-api:dev     .
+docker build -f services/worker/Dockerfile       -t bankoffer-worker:dev  .
+docker build -f services/notification/Dockerfile -t bankoffer-notify:dev  .
+docker build -f frontend/Dockerfile              -t bankoffer-frontend:dev .
+```
+
+### Seed demo data
+
+If you restart containers and Redis data is lost:
+
+```bash
+docker exec bankoffer-redis redis-cli -a redis123 SET "profile:demo-001" \
+  '{"customer_id":"demo-001","age":35,"city":"New York","income":85000,"savings":24000,"debt":12000,"risk_profile":"moderate","marital_status":"married","dependents_count":2,"homeowner_status":"mortgage","existing_products":["checking","savings"],"life_stage":"mid_career","financial_health":"good","lifestyle_segment":"family_focused","investor_readiness":0.65,"risk_bucket":"moderate","context_signals":["idle_cash_high","investment_gap","monthly_savings_consistent","family_context","high_income"],"family_context":{}}' \
+  EX 86400
+```
+
+### Stop everything
+
+```bash
+docker rm -f bankoffer-api bankoffer-worker bankoffer-notification bankoffer-frontend
+docker-compose down
+```
+
+---
+
+## Pipelines
+
+| Workflow | Trigger | Runner | Purpose |
+|----------|---------|--------|---------|
+| `ci.yaml` | push / PR | `ubuntu-latest` | Lint, test, Docker build validation, secret scan |
+| `local-deploy.yaml` | push to `main`, tags | `self-hosted` | Full stack build + deploy on local machine |
+| `build-runner-image.yaml` | changes to `.github/runner-image/` | `ubuntu-latest` | Build and push CI runner Docker image to GHCR |
+| `cd-staging.yaml` | push to `main` | `ubuntu-latest` | ArgoCD sync to staging (requires `ARGOCD_ENABLED=true`) |
+| `cd-prod.yaml` | tag `v*` | `ubuntu-latest` | ArgoCD sync to production |
+
+---
+
+## Known Limitations (BETA_RC_1.0.0)
+
+- The `customer_profiles` PostgreSQL table schema does not match the `CustomerProfile` model. Profiles are served from Redis in demo mode. A migration is planned for RC_1.1.0.
+- `docker-compose` v1.29.2 cannot recreate containers after image updates (`ContainerConfig` bug). The deploy script uses `docker run` directly as a workaround.
+- The notification service restarts on startup (missing Kafka topic). Offer API and frontend are unaffected.
+- Anthropic API calls require a funded key. The worker automatically falls back to rule-based scoring when the API is unavailable.
+
+---
 
 ## License
 
-Proprietary. All rights reserved.
+Internal use only — Accesa / BankOffer AI project.

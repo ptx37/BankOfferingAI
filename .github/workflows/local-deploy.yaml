@@ -1,0 +1,83 @@
+name: Local Deploy (Self-Hosted Runner)
+
+# Triggers on every push to main and on manual dispatch.
+# Runs exclusively on the self-hosted runner — requires GitHub Actions runner
+# installed and running on the target machine (see README.md for setup).
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "BETA_RC_*"
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      skip_build:
+        description: "Skip Docker image builds (redeploy existing images)"
+        required: false
+        default: "false"
+      skip_seed:
+        description: "Skip Redis demo data seed"
+        required: false
+        default: "false"
+
+concurrency:
+  group: local-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build & Deploy — Local Stack
+    runs-on: self-hosted
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # ── 2. Verify Docker is accessible ────────────────────────────────────
+      - name: Verify Docker
+        run: |
+          docker version
+          docker compose version 2>/dev/null || docker-compose version
+
+      # ── 3. Load .env ───────────────────────────────────────────────────────
+      - name: Prepare environment file
+        run: |
+          if [ ! -f .env ]; then
+            echo "Copying .env.example to .env"
+            cp .env.example .env
+          else
+            echo ".env already exists — skipping copy"
+          fi
+
+      # ── 4. Run deploy script ───────────────────────────────────────────────
+      - name: Deploy full stack
+        env:
+          SKIP_BUILD: ${{ github.event.inputs.skip_build || 'false' }}
+          SKIP_SEED:  ${{ github.event.inputs.skip_seed  || 'false' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD || 'postgres' }}
+          REDIS_PASSWORD:    ${{ secrets.REDIS_PASSWORD    || 'redis123' }}
+        run: |
+          chmod +x .github/scripts/deploy-local.sh
+          .github/scripts/deploy-local.sh
+
+      # ── 5. Print summary ───────────────────────────────────────────────────
+      - name: Deployment summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Service    | URL |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|-----|" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend   | http://localhost:3000 |" >> $GITHUB_STEP_SUMMARY
+          echo "| API        | http://localhost:8000/docs |" >> $GITHUB_STEP_SUMMARY
+          echo "| Worker     | http://localhost:8001/health |" >> $GITHUB_STEP_SUMMARY
+          echo "| Grafana    | http://localhost:3001 |" >> $GITHUB_STEP_SUMMARY
+          echo "| pgAdmin    | http://localhost:5050 |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch/Tag:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
