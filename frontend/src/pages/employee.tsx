@@ -188,7 +188,7 @@ export default function EmployeePortal() {
   function sendOffer(offer: Offer) {
     const customer = customers.find(c => c.customer_id === openCustomerId);
     setSentOffers(prev => ({ ...prev, [offer.offer_id]: true }));
-    const msg = t('emp.sentToast').replace('{name}', customer?.name ?? openCustomerId ?? '');
+    const msg = t('emp.sentToast').replace('{name}', customer?.customer_id ?? openCustomerId ?? '');
     setToast(msg);
     setTimeout(() => setToast(''), 3500);
   }
@@ -202,7 +202,6 @@ export default function EmployeePortal() {
 
   // Customers tab filtered list
   const filteredCustomers = customers.filter(c =>
-    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.customer_id.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -310,7 +309,7 @@ export default function EmployeePortal() {
                   <thead>
                     <tr>
                       <th style={{ ...thStyle, width: 36, textAlign: 'center' }}>#</th>
-                      <th style={thStyle}>{t('emp.name')}</th>
+                      <th style={thStyle}>{t('emp.customerId')}</th>
                       <th style={{ ...thStyle, width: 110 }}>{t('emp.segment')}</th>
                       <th style={{ ...thStyle, width: 170 }}>
                         <button
@@ -337,17 +336,7 @@ export default function EmployeePortal() {
                             {idx + 1}
                           </td>
                           <td style={tdStyle}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                              <div style={{
-                                width: 32, height: 32, borderRadius: '50%',
-                                background: bg + '28', display: 'flex', alignItems: 'center',
-                                justifyContent: 'center', fontSize: 11, fontWeight: 500, color: bg, flexShrink: 0,
-                              }}>{c.initials}</div>
-                              <div>
-                                <p style={{ fontSize: 13, fontWeight: 500 }}>{c.name}</p>
-                                <p style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{c.customer_id}</p>
-                              </div>
-                            </div>
+                            <span style={{ fontSize: 13, fontWeight: 500, fontFamily: 'monospace' }}>{c.customer_id}</span>
                           </td>
                           <td style={tdStyle}>
                             <span style={{
@@ -480,7 +469,7 @@ export default function EmployeePortal() {
                     <thead>
                       <tr style={{ background: 'var(--color-background-secondary)' }}>
                         {[
-                          { label: t('emp.name'), align: 'left' },
+                          { label: t('emp.customerId'), align: 'left' },
                           { label: t('emp.segment'), align: 'left' },
                           { label: t('emp.rating'), align: 'left' },
                           { label: 'GDPR', align: 'center' },
@@ -512,17 +501,7 @@ export default function EmployeePortal() {
                             }}
                           >
                             <td style={{ padding: '10px 14px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <div style={{
-                                  width: 32, height: 32, borderRadius: '50%',
-                                  background: bg + '28', display: 'flex', alignItems: 'center',
-                                  justifyContent: 'center', fontSize: 11, fontWeight: 500, color: bg, flexShrink: 0,
-                                }}>{c.initials}</div>
-                                <div>
-                                  <p style={{ fontSize: 13, fontWeight: 500 }}>{c.name}</p>
-                                  <p style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{c.customer_id}</p>
-                                </div>
-                              </div>
+                              <span style={{ fontSize: 13, fontWeight: 500, fontFamily: 'monospace' }}>{c.customer_id}</span>
                             </td>
                             <td style={{ padding: '10px 14px' }}>
                               <span style={{
@@ -571,16 +550,10 @@ export default function EmployeePortal() {
                   }}>
                     {/* Customer summary row */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-                      <div style={{
-                        width: 46, height: 46, borderRadius: '50%', flexShrink: 0,
-                        background: (AVATAR_BG[openCustomer.segment] ?? AVATAR_BG.Other) + '28',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 15, fontWeight: 600, color: AVATAR_BG[openCustomer.segment] ?? AVATAR_BG.Other,
-                      }}>{openCustomer.initials}</div>
                       <div style={{ flex: 1, minWidth: 180 }}>
-                        <p style={{ fontSize: 15, fontWeight: 600, marginBottom: 3 }}>{openCustomer.name}</p>
+                        <p style={{ fontSize: 15, fontWeight: 600, marginBottom: 3, fontFamily: 'monospace' }}>{openCustomer.customer_id}</p>
                         <p style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
-                          {openCustomer.customer_id} · {openCustomer.segment} · {openCustomer.financial_health}
+                          {openCustomer.segment} · {openCustomer.financial_health}
                         </p>
                       </div>
                       {!openConsent?.gdpr && (
