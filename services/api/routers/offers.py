@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from services.api.middleware.auth import get_current_customer_id
 from services.api.models import Channel, Offer, OfferResponse, ProductType
+from services.api.routers.compliance import AUDIT_CUSTOMER_LIST_PREFIX, AUDIT_RECORD_PREFIX, KILL_SWITCH_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -77,8 +78,8 @@ def _build_features(raw: dict) -> dict:
     }
 
 
-async def _call_worker_scoring(customer_id: str, features: dict) -> list[Offer]:
-    """Call the worker scorer/ranker and return ranked Offer objects."""
+async def _call_worker_scoring(customer_id: str, features: dict) -> tuple[list[Offer], dict]:
+    """Call the worker scorer/ranker and return (ranked Offer objects, audit_trail dict)."""
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(
             f"{WORKER_BASE_URL}/score-and-rank",
@@ -104,7 +105,7 @@ async def _call_worker_scoring(customer_id: str, features: dict) -> list[Offer]:
             channel=channel,
             cta_url=f"/products/{o['product_id']}",
         ))
-    return offers
+    return offers, data.get("audit_trail", {})
 
 
 @router.get(
@@ -124,6 +125,25 @@ async def get_offers(
     Any authenticated user (including bank agents logged in as demo-001)
     may fetch offers for any customer profile.
     """
+    redis = request.app.state.redis
+
+    # ── Art. 14(4): Kill switch check ─────────────────────────────────────────
+    ks_raw = await redis.get(KILL_SWITCH_KEY)
+    if ks_raw:
+        ks = json.loads(ks_raw)
+        if ks.get("active"):
+            logger.warning("KILL_SWITCH_ACTIVE: blocking offers for %s", customer_id)
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "recommendation_engine_halted",
+                    "message": "The AI recommendation engine has been temporarily suspended by compliance.",
+                    "reason": ks.get("reason", ""),
+                    "set_by": ks.get("set_by", ""),
+                    "set_at": ks.get("set_at", ""),
+                },
+            )
+
     try:
         raw_profile = await _fetch_customer_raw(customer_id, request)
     except HTTPException:
@@ -135,7 +155,7 @@ async def get_offers(
     features = _build_features(raw_profile)
 
     try:
-        ranked_offers = await _call_worker_scoring(customer_id, features)
+        ranked_offers, audit_trail = await _call_worker_scoring(customer_id, features)
     except httpx.HTTPStatusError as e:
         logger.error("Worker scoring failed for %s: %s", customer_id, e)
         raise HTTPException(status_code=502, detail="Scoring service unavailable")
@@ -143,9 +163,23 @@ async def get_offers(
         logger.error("Worker connection error for %s: %s", customer_id, e)
         raise HTTPException(status_code=503, detail="Scoring service unreachable")
 
+    # ── Art. 12: Persist audit trail (immutable, 5-year TTL) ──────────────────
+    if audit_trail:
+        TTL_5_YEARS = 157_680_000
+        audit_id = audit_trail.get("audit_id", "")
+        if audit_id:
+            await redis.set(
+                f"{AUDIT_RECORD_PREFIX}{audit_id}",
+                json.dumps(audit_trail),
+                ex=TTL_5_YEARS,
+            )
+            await redis.lpush(f"{AUDIT_CUSTOMER_LIST_PREFIX}{customer_id}", audit_id)
+            # Cap list at 10 000 entries per customer to prevent unbounded growth
+            await redis.ltrim(f"{AUDIT_CUSTOMER_LIST_PREFIX}{customer_id}", 0, 9_999)
+
     return OfferResponse(
         customer_id=customer_id,
         offers=ranked_offers[:top_n],
         generated_at=datetime.utcnow(),
-        model_version="1.0.0",
+        model_version=audit_trail.get("model_version", "1.0.0") if audit_trail else "1.0.0",
     )

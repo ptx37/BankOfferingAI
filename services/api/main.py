@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from services.api.routers import customers, offers, profiles, webhooks
+from services.api.routers import compliance, customers, offers, profiles, webhooks
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +94,7 @@ def create_app() -> FastAPI:
     # Routers
     app.include_router(offers.router, prefix="/offers", tags=["offers"])
     app.include_router(customers.router, prefix="/customers", tags=["customers"])
+    app.include_router(compliance.router, prefix="/compliance", tags=["compliance"])
     app.include_router(profiles.router, prefix="/profiles", tags=["profiles"])
     app.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 

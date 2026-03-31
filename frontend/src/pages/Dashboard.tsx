@@ -386,20 +386,53 @@ export default function Dashboard() {
                         {offer.personalization_reason}
                       </p>
 
+                      {/* Art. 13 — AI-generated explanation disclosure */}
+                      <p style={{ fontSize: 10, color: 'var(--color-text-muted)', fontStyle: 'italic', marginTop: 2 }}>
+                        ⓘ Această explicație a fost generată automat de un sistem AI
+                      </p>
+
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
                         <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
                           Match: <span style={{ color: isTop ? '#185FA5' : 'var(--color-text-secondary)', fontWeight: 500 }}>
                             {Math.round(offer.relevance_score * 100)}%
                           </span>
                         </span>
-                        <button style={{
-                          fontSize: 11, fontWeight: 500,
-                          background: isTop ? '#0C447C' : '#185FA5',
-                          color: 'white', border: 'none', borderRadius: 8,
-                          padding: '4px 12px', cursor: 'pointer',
-                        }}>
-                          Send
-                        </button>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          {/* Art. 14 — Human override: RM can reject with logged reason */}
+                          <button
+                            onClick={() => {
+                              const reason = window.prompt(`Override reason for "${offer.product_name}":`);
+                              if (!reason) return;
+                              fetch('/api/compliance/override', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', ...{ Authorization: `Bearer ${localStorage.getItem('auth_token')}` } },
+                                body: JSON.stringify({
+                                  customer_id: selectedId,
+                                  offer_id: offer.offer_id,
+                                  product_id: offer.product_id,
+                                  product_name: offer.product_name,
+                                  reason,
+                                }),
+                              }).then(() => alert('Override logged.'));
+                            }}
+                            style={{
+                              fontSize: 11, fontWeight: 500,
+                              background: 'transparent', color: '#A32D2D',
+                              border: '1px solid #A32D2D', borderRadius: 8,
+                              padding: '4px 10px', cursor: 'pointer',
+                            }}
+                          >
+                            Override
+                          </button>
+                          <button style={{
+                            fontSize: 11, fontWeight: 500,
+                            background: isTop ? '#0C447C' : '#185FA5',
+                            color: 'white', border: 'none', borderRadius: 8,
+                            padding: '4px 12px', cursor: 'pointer',
+                          }}>
+                            Send
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );

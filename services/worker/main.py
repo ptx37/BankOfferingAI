@@ -81,6 +81,7 @@ async def score_and_rank(request: ScoreAndRankRequest) -> ScoreAndRankResponse:
             llm_client=llm_client,
             existing_products=existing_products,
             profiling_consent=profiling_consent,
+            features_snapshot=features,   # Art. 12 — snapshot of inputs used for decision
         )
     except Exception as exc:
         logger.exception("Scoring failed for customer %s", request.customer_id)
@@ -132,9 +133,13 @@ async def score_and_rank(request: ScoreAndRankRequest) -> ScoreAndRankResponse:
         "audit_id": audit.audit_id,
         "timestamp": audit.timestamp,
         "customer_id": audit.customer_id,
+        "model_version": audit.model_version,           # Art. 11 — version traceability
         "profiling": audit.profiling,
+        "features_snapshot": audit.features_snapshot,  # Art. 12 — raw input snapshot
         "compliance": audit.compliance,
-        "top_recommendations": audit.recommendations[:5],
+        "recommendations": audit.recommendations,
+        "llm_used": audit.llm_used,                    # Section 6 — LLM disclosure
+        "llm_model": audit.llm_model,
     }
 
     logger.info("Completed score-and-rank for %s: %d offers", request.customer_id, len(offers_resp))

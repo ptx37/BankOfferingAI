@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 MODEL_ID = "claude-sonnet-4-20250514"
 MAX_TOKENS = 800
+SCORING_ENGINE_VERSION = "1.0.0"  # bump on every model/rule change
 
 RISK_RANK: dict[str, int] = {"low": 1, "moderate": 2, "high": 3}
 
@@ -82,9 +83,13 @@ class AuditTrail:
     audit_id: str
     timestamp: str
     customer_id: str
+    model_version: str                  # Art. 11 — version traceability
     profiling: dict[str, Any]
+    features_snapshot: dict[str, Any]   # Art. 12 — raw inputs used for decision
     compliance: dict[str, Any]
     recommendations: list[dict[str, Any]]
+    llm_used: bool                      # Section 6 — LLM usage disclosure
+    llm_model: str | None               # Section 6 — which LLM model if used
 
 
 def _is_risk_eligible(customer_risk: str, product_risk: Any) -> bool:
@@ -172,13 +177,23 @@ def _generate_reasons(
     profile: ProfileResult,
     llm_client: LLMClient | None,
     signals_per_product: list[list[str]],
-) -> list[str]:
-    """Call LLM for explanations; fall back to templates on any error."""
-    if not llm_client:
-        return [_template_reason(p, profile, s) for p, s in zip(products, signals_per_product)]
+) -> tuple[list[str], bool]:
+    """
+    Call LLM for explanations; fall back to templates on any error.
+    Returns (reasons, llm_was_used).
 
+    AI Act Section 6 compliance:
+    - Prompt contains ONLY anonymized financial features (no name, no CNP, no IBAN)
+    - Prompt and raw response are logged at INFO level for 90-day retention audit
+    - LLM generates explanation text ONLY — does not influence score or filtering
+    """
+    if not llm_client:
+        return [_template_reason(p, profile, s) for p, s in zip(products, signals_per_product)], False
+
+    # NOTE: customer_id is a pseudonymous UUID-style ID (CUST-NNN) — no direct identifier
+    # City and geographic data are intentionally excluded (AI Act Art. 5(1)(c))
     prompt = (
-        f"Customer financial profile:\n"
+        f"Customer financial profile (anonymised):\n"
         f"- Financial health: {profile.financial_health}\n"
         f"- Risk bucket: {profile.risk_bucket}\n"
         f"- Investor readiness: {profile.investor_readiness}\n"
@@ -192,17 +207,32 @@ def _generate_reasons(
         + "\n\nReturn a JSON array of strings, one explanation per product."
     )
 
+    # AI Act Section 6 — log prompt for minimum 90-day retention (captured by log aggregator)
+    logger.info(
+        "LLM_AUDIT_PROMPT customer=%s model=%s products=%s prompt=%s",
+        profile.customer_id, MODEL_ID,
+        [p["product_id"] for p in products],
+        prompt,
+    )
+
     try:
         raw = llm_client.create_message(prompt=prompt, system=EXPLANATION_SYSTEM, max_tokens=MAX_TOKENS)
+
+        # AI Act Section 6 — log raw response for minimum 90-day retention
+        logger.info(
+            "LLM_AUDIT_RESPONSE customer=%s model=%s response=%s",
+            profile.customer_id, MODEL_ID, raw,
+        )
+
         match = re.search(r"\[.*\]", raw, re.DOTALL)
         if match:
             reasons = json.loads(match.group())
             if isinstance(reasons, list) and len(reasons) == len(products):
-                return [str(r) for r in reasons]
+                return [str(r) for r in reasons], True
     except Exception as exc:
         logger.warning("LLM reason generation failed: %s — using templates", exc)
 
-    return [_template_reason(p, profile, s) for p, s in zip(products, signals_per_product)]
+    return [_template_reason(p, profile, s) for p, s in zip(products, signals_per_product)], False
 
 
 def score_products(
@@ -211,6 +241,7 @@ def score_products(
     products: list[dict[str, Any]] | None = None,
     existing_products: list[str] | None = None,
     profiling_consent: bool = True,
+    features_snapshot: dict[str, Any] | None = None,
 ) -> tuple[list[ScoredProduct], AuditTrail]:
     """
     Run the 6-step rule engine and return scored products + audit trail.
@@ -235,9 +266,13 @@ def score_products(
         logger.warning("No profiling consent for %s — returning empty results", profile.customer_id)
         audit = AuditTrail(
             audit_id=audit_id, timestamp=timestamp, customer_id=profile.customer_id,
+            model_version=SCORING_ENGINE_VERSION,
             profiling={},
+            features_snapshot=features_snapshot or {},
             compliance={"profiling_consent": False, "action": "skipped_no_consent"},
             recommendations=[],
+            llm_used=False,
+            llm_model=None,
         )
         return [], audit
 
@@ -308,7 +343,7 @@ def score_products(
     # ── Step 6: Generate explanations ─────────────────────────────────────────
     products_for_llm = [sd[0] for sd in scored_data]
     signals_for_llm = [sd[3] for sd in scored_data]
-    reasons = _generate_reasons(products_for_llm, profile, llm_client, signals_for_llm)
+    reasons, llm_was_used = _generate_reasons(products_for_llm, profile, llm_client, signals_for_llm)
 
     # ── Assemble ScoredProduct list ────────────────────────────────────────────
     scored_products: list[ScoredProduct] = []
@@ -332,9 +367,12 @@ def score_products(
             "product_name": p["product_name"],
             "relevance_score": relevance,
             "confidence_score": confidence,
+            "trigger_signal": matched,        # Art. 12 — which signals triggered this product
             "signals_matched": matched,
             "rules_applied": rules,
             "channel": p.get("recommended_channel", "in_app"),
+            "suitability_passed": True,       # Art. 12 — passed all compliance filters
+            "outcome": None,                  # Art. 12 — updated post-interaction via override API
         })
 
     # ── Build audit trail ──────────────────────────────────────────────────────
@@ -342,6 +380,7 @@ def score_products(
         audit_id=audit_id,
         timestamp=timestamp,
         customer_id=profile.customer_id,
+        model_version=SCORING_ENGINE_VERSION,
         profiling={
             "financial_health": profile.financial_health,
             "risk_bucket": profile.risk_bucket,
@@ -353,8 +392,11 @@ def score_products(
             "inflation_exposed": profile.inflation_exposed,
             "eligible_pr020": profile.eligible,
         },
+        features_snapshot=features_snapshot or {},  # Art. 12 — raw input snapshot
         compliance=compliance_log,
         recommendations=audit_recs,
+        llm_used=llm_was_used,                      # Section 6 — LLM usage flag
+        llm_model=MODEL_ID if llm_was_used else None,
     )
 
     return scored_products, audit
