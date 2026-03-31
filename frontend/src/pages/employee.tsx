@@ -5,17 +5,11 @@ import Sidebar from '../components/Sidebar';
 import type { NavItem } from '../components/Sidebar';
 import { useTranslation } from '../lib/i18n';
 import { CATALOG_PRODUCTS, CATEGORY_COLORS } from '../lib/products';
+import { MOCK_CUSTOMERS, type MockCustomer } from '../lib/mockData';
 
 type TabId = 'dashboard' | 'products' | 'customers';
 
-interface Customer {
-  customer_id: string;
-  name: string;
-  initials: string;
-  segment: 'Premium' | 'Standard' | 'Other';
-  financial_health: string;
-  match_score: number;
-}
+type Customer = MockCustomer;
 
 interface Offer {
   offer_id: string;
@@ -163,15 +157,7 @@ export default function EmployeePortal() {
     router.push({ pathname: '/employee', query: { tab } }, undefined, { shallow: true });
   }
 
-  const { data: customersData } = useQuery<{ customers: Customer[] }>({
-    queryKey: ['customers'],
-    queryFn: () => fetch('/api/customers', { headers: authHeader() }).then(r => {
-      if (!r.ok) throw new Error('Failed'); return r.json();
-    }),
-    enabled: !!displayName,
-    staleTime: 5 * 60 * 1000,
-  });
-  const customers = customersData?.customers ?? [];
+  const customers: Customer[] = MOCK_CUSTOMERS;
 
   const { data: detailOffersData, isLoading: detailOffersLoading } = useQuery<{ offers: Offer[] }>({
     queryKey: ['emp-detail-offers', openCustomerId],

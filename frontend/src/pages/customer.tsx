@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import TopBarControls from '../components/TopBarControls';
 import { useTranslation } from '../lib/i18n';
+import { getMockCustomer } from '../lib/mockData';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -154,11 +155,10 @@ function ActiveBadge() {
   );
 }
 
-interface PieTooltipProps { active?: boolean; payload?: Array<{ name: string; value: number }>; }
-function PieTooltip({ active, payload }: PieTooltipProps) {
+interface PieTooltipProps { active?: boolean; payload?: Array<{ name: string; value: number }>; total?: number; }
+function PieTooltip({ active, payload, total = 1 }: PieTooltipProps) {
   if (!active || !payload?.length) return null;
   const item = payload[0];
-  const total = PLACEHOLDER_SPENDING.reduce((s, d) => s + d.amount, 0);
   const pct = ((item.value / total) * 100).toFixed(1);
   return (
     <div style={{
@@ -210,6 +210,11 @@ export default function CustomerPortal() {
   const [emailConsent,  setEmailConsent]  = useState(true);
   const [inAppConsent,  setInAppConsent]  = useState(true);
 
+  // Mock transactions loaded from CSV
+  const [mockTransactions, setMockTransactions] = useState<Array<{
+    date: string; amount: number; category: string; channel: string;
+  }>>([]);
+
   useEffect(() => {
     const role = localStorage.getItem('role');
     if (!localStorage.getItem('auth_token') || role !== 'customer') {
@@ -219,6 +224,31 @@ export default function CustomerPortal() {
     setCustomerId(uid);
     setDisplayName(localStorage.getItem('display_name') || uid);
   }, []);
+
+  // Load transactions for this customer from CSV
+  useEffect(() => {
+    if (!customerId) return;
+    fetch('/mock/transactions.csv')
+      .then(r => r.text())
+      .then(text => {
+        const lines = text.trim().split('\n').slice(1);
+        const txns = lines
+          .map(line => {
+            const parts = line.split(',');
+            return {
+              customer_id: parts[0],
+              date: parts[1]?.slice(0, 10) ?? '',
+              amount: parseFloat(parts[2] ?? '0'),
+              category: parts[3] ?? 'other',
+              channel: parts[4] ?? '',
+            };
+          })
+          .filter(t => t.customer_id === customerId)
+          .sort((a, b) => b.date.localeCompare(a.date));
+        setMockTransactions(txns);
+      })
+      .catch(() => {});
+  }, [customerId]);
 
   // ── API queries ────────────────────────────────────────────────────────────
   const { data: profile } = useQuery<Profile>({
@@ -264,17 +294,39 @@ export default function CustomerPortal() {
   function handleInApp(v: boolean) { console.log('[consent] In-app →', v); setInAppConsent(v); }
 
   // ── Derived data ───────────────────────────────────────────────────────────
-  const spendingForChart = spendingData?.spending?.length
+  const mockCustomer = customerId ? getMockCustomer(customerId) : undefined;
+
+  // Aggregate spending by category from mock transactions (expenses only)
+  const mockSpending: SpendItem[] = useMemo(() => {
+    const agg: Record<string, number> = {};
+    mockTransactions.filter(t => t.amount < 0).forEach(t => {
+      const cat = t.category.charAt(0).toUpperCase() + t.category.slice(1);
+      agg[cat] = (agg[cat] || 0) + Math.abs(t.amount);
+    });
+    return Object.entries(agg)
+      .map(([category, amount]) => ({ category, amount: Math.round(amount) }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [mockTransactions]);
+
+  const spendingForChart: SpendItem[] = spendingData?.spending?.length
     ? spendingData.spending
-    : PLACEHOLDER_SPENDING;
+    : (mockSpending.length ? mockSpending : PLACEHOLDER_SPENDING);
 
   const apiOffers = offersData?.offers ?? [];
   const suggestedProducts = apiOffers.length >= 3 ? apiOffers.slice(0, 3) : null;
 
-  const existingIds = profile?.existing_products ?? [];
+  const existingIds = profile?.existing_products ?? mockCustomer?.existing_products ?? [];
   const activeProducts = existingIds.length
     ? existingIds.map(id => ({ id, ...(PRODUCT_DISPLAY[id] ?? { name: id.replace(/_/g, ' '), metric: 'Status', value: '—' }) }))
     : PLACEHOLDER_ACTIVE;
+
+  // Category label for display in transaction list
+  const TX_LABEL: Record<string, string> = {
+    salary: 'Salary Credit', rent: 'Rent Payment', food: 'Food & Dining',
+    shopping: 'Shopping', travel: 'Travel', subscriptions: 'Subscription',
+    utilities: 'Utilities', other: 'Other',
+  };
+  const displayTransactions = mockTransactions.length ? mockTransactions : PLACEHOLDER_TRANSACTIONS;
 
   function signOut() { localStorage.clear(); window.location.href = '/login'; }
 
@@ -477,7 +529,7 @@ export default function CustomerPortal() {
                     <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip content={<PieTooltip />} />
+                <Tooltip content={<PieTooltip total={spendingForChart.reduce((s, d) => s + d.amount, 0)} />} />
               </PieChart>
             </ResponsiveContainer>
 
@@ -509,37 +561,46 @@ export default function CustomerPortal() {
               <span style={{ textAlign: 'right' }}>Amount</span>
             </div>
 
-            {PLACEHOLDER_TRANSACTIONS.map((tx, i) => (
-              <div key={i} style={{
-                display: 'grid',
-                gridTemplateColumns: '110px 1fr 140px 90px',
-                padding: '11px 0',
-                borderBottom: '1px solid var(--color-border-tertiary)',
-                gap: 12, alignItems: 'center',
-                fontSize: 13,
-              }}>
-                <span style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
-                  {new Date(tx.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
-                </span>
-                <span style={{ color: 'var(--color-text-primary)', fontWeight: tx.amount > 0 ? 500 : 400 }}>
-                  {tx.description}
-                </span>
-                <span style={{
-                  fontSize: 11, padding: '2px 8px', borderRadius: 10,
-                  background: 'var(--color-background-secondary)',
-                  color: 'var(--color-text-secondary)',
-                  whiteSpace: 'nowrap', justifySelf: 'start',
+            {displayTransactions.map((tx, i) => {
+              const isMock = 'channel' in tx;
+              const description = isMock
+                ? (TX_LABEL[(tx as {category:string}).category] ?? (tx as {category:string}).category)
+                : (tx as {description:string}).description;
+              const category = isMock
+                ? ((tx as {category:string}).category.charAt(0).toUpperCase() + (tx as {category:string}).category.slice(1))
+                : (tx as {category:string}).category;
+              return (
+                <div key={i} style={{
+                  display: 'grid',
+                  gridTemplateColumns: '110px 1fr 140px 90px',
+                  padding: '11px 0',
+                  borderBottom: '1px solid var(--color-border-tertiary)',
+                  gap: 12, alignItems: 'center',
+                  fontSize: 13,
                 }}>
-                  {tx.category}
-                </span>
-                <span style={{
-                  textAlign: 'right', fontWeight: 500,
-                  color: tx.amount > 0 ? 'var(--color-positive)' : 'var(--color-negative)',
-                }}>
-                  {tx.amount > 0 ? '+' : ''}€{Math.abs(tx.amount).toFixed(2)}
-                </span>
-              </div>
-            ))}
+                  <span style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
+                    {new Date(tx.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                  </span>
+                  <span style={{ color: 'var(--color-text-primary)', fontWeight: tx.amount > 0 ? 500 : 400 }}>
+                    {description}
+                  </span>
+                  <span style={{
+                    fontSize: 11, padding: '2px 8px', borderRadius: 10,
+                    background: 'var(--color-background-secondary)',
+                    color: 'var(--color-text-secondary)',
+                    whiteSpace: 'nowrap', justifySelf: 'start',
+                  }}>
+                    {category}
+                  </span>
+                  <span style={{
+                    textAlign: 'right', fontWeight: 500,
+                    color: tx.amount > 0 ? 'var(--color-positive)' : 'var(--color-negative)',
+                  }}>
+                    {tx.amount > 0 ? '+' : ''}€{Math.abs(tx.amount).toFixed(2)}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </section>
 
