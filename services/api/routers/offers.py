@@ -1,5 +1,6 @@
 """Offers router - serves ranked product offers for a customer."""
 
+import json
 import logging
 from datetime import datetime
 
@@ -7,7 +8,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from services.api.middleware.auth import get_current_customer_id
-from services.api.models import CustomerProfile, Offer, OfferResponse
+from services.api.models import Channel, Offer, OfferResponse, ProductType
 
 logger = logging.getLogger(__name__)
 
@@ -15,86 +16,82 @@ router = APIRouter()
 
 WORKER_BASE_URL = "http://worker:8001"
 
+_CHANNEL_MAP: dict[str, Channel] = {
+    "push": Channel.PUSH,
+    "email": Channel.EMAIL,
+    "in_app": Channel.IN_APP,
+    "in-app": Channel.IN_APP,
+}
 
-async def _fetch_customer_profile(
-    customer_id: str, request: Request
-) -> CustomerProfile:
-    """Retrieve customer profile from the database or cache."""
-    redis = request.app.state.redis
-
-    # Try cache first
-    cached = await redis.get(f"profile:{customer_id}")
-    if cached:
-        return CustomerProfile.model_validate_json(cached)
-
-    # Fall back to DB
-    session_factory = request.app.state.db_session_factory
-    async with session_factory() as session:
-        from sqlalchemy import text
-
-        result = await session.execute(
-            text("SELECT data FROM customer_profiles WHERE customer_id = :cid"),
-            {"cid": customer_id},
-        )
-        row = result.fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Customer profile not found")
-
-        profile = CustomerProfile.model_validate_json(row[0])
-
-        # Warm cache (TTL 15 min)
-        await redis.set(
-            f"profile:{customer_id}",
-            profile.model_dump_json(),
-            ex=900,
-        )
-        return profile
-
-
-def _profile_to_features(profile: CustomerProfile) -> dict:
-    """Map CustomerProfile to the flat features dict expected by the worker."""
-    return {
-        "age": profile.age,
-        "income": profile.income,
-        "savings": profile.savings,
-        "monthly_savings": profile.savings / 12 if profile.savings else 0,
-        "avg_expenses": profile.income / 12 * 0.6 if profile.income else 0,
-        "idle_cash": max(0, profile.savings - profile.debt),
-        "debt_to_income": profile.debt / profile.income if profile.income else 0,
-        "savings_rate": (profile.savings / 12) / (profile.income / 12) if profile.income else 0,
-        "dominant_spend_category": "general",
-        "investment_gap_flag": 1 if profile.investor_readiness > 0.5 else 0,
-        "risk_profile": profile.risk_profile,
-        "marital_status": profile.marital_status,
-        "dependents_count": profile.dependents_count,
-        "homeowner_status": profile.homeowner_status,
-        "account_tenure_years": 3.0,
-        "events": [],
-    }
-
-
-_CHANNEL_MAP = {"push": "push", "email": "email", "in_app": "in_app"}
-_TYPE_MAP = {
-    "credit_card": "credit_card", "personal_loan": "personal_loan",
-    "mortgage": "mortgage", "savings_account": "savings_account",
-    "investment": "investment", "insurance": "insurance", "overdraft": "overdraft",
+_CATEGORY_TO_TYPE: dict[str, ProductType] = {
+    "investments": ProductType.INVESTMENT,
+    "investment": ProductType.INVESTMENT,
+    "savings": ProductType.SAVINGS_ACCOUNT,
+    "lending": ProductType.PERSONAL_LOAN,
+    "cards": ProductType.CREDIT_CARD,
+    "insurance": ProductType.INSURANCE,
+    "retirement": ProductType.INVESTMENT,
+    "credit_card": ProductType.CREDIT_CARD,
+    "personal_loan": ProductType.PERSONAL_LOAN,
+    "mortgage": ProductType.MORTGAGE,
+    "savings_account": ProductType.SAVINGS_ACCOUNT,
+    "overdraft": ProductType.OVERDRAFT,
 }
 
 
-async def _call_worker_scoring(profile: CustomerProfile) -> list[Offer]:
-    """Call the worker service scorer/ranker pipeline and return ranked offers."""
+async def _fetch_customer_raw(customer_id: str, request: Request) -> dict:
+    """Load raw customer profile from Redis (seeded by data_seeder)."""
+    redis = request.app.state.redis
+    cached = await redis.get(f"profile:{customer_id}")
+    if cached:
+        return json.loads(cached)
+    raise HTTPException(status_code=404, detail=f"Customer profile not found: {customer_id}")
+
+
+def _build_features(raw: dict) -> dict:
+    """
+    Build worker feature dict from raw seeded profile.
+    COMPLIANCE: 'city' is intentionally excluded (AI Act Art.5(1)(c)).
+    """
+    return {
+        "age": raw.get("age", 30),
+        "income": float(raw.get("income", 0)),
+        "savings": float(raw.get("savings", 0)),
+        "monthly_savings": float(raw.get("monthly_savings", float(raw.get("savings", 0)) / 12)),
+        "avg_expenses": float(raw.get("avg_expenses", 0)),
+        "idle_cash": float(raw.get("idle_cash", max(0.0, float(raw.get("savings", 0)) - float(raw.get("debt", 0))))),
+        "debt_to_income": float(raw.get("debt_to_income", 0)),
+        "savings_rate": float(raw.get("savings_rate", 0)),
+        "dominant_spend_category": str(raw.get("dominant_spend_category", "")),
+        "investment_gap_flag": int(raw.get("investment_gap_flag", 0)),
+        "risk_profile": str(raw.get("risk_profile", "low")).lower(),
+        "marital_status": str(raw.get("marital_status", "single")).lower(),
+        "dependents_count": int(raw.get("dependents_count", 0)),
+        "homeowner_status": str(raw.get("homeowner_status", "rent")).lower(),
+        "account_tenure_years": float(raw.get("account_tenure_years", 3.0)),
+        "balance_trend": str(raw.get("balance_trend", "stable")).lower(),
+        "events": raw.get("events", []),
+        "existing_products": raw.get("existing_products", []),
+        "profiling_consent": bool(raw.get("profiling_consent", True)),
+        # NOTE: 'city' is intentionally excluded — geographic targeting prohibited
+    }
+
+
+async def _call_worker_scoring(customer_id: str, features: dict) -> list[Offer]:
+    """Call the worker scorer/ranker and return ranked Offer objects."""
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(
             f"{WORKER_BASE_URL}/score-and-rank",
-            json={"customer_id": profile.customer_id, "features": _profile_to_features(profile)},
+            json={"customer_id": customer_id, "features": features},
         )
         response.raise_for_status()
         data = response.json()
 
-    offers = []
+    offers: list[Offer] = []
     for o in data.get("offers", []):
-        product_type = _TYPE_MAP.get(o.get("category", ""), "investment")
-        channel = _CHANNEL_MAP.get(o.get("recommended_channel", "in_app"), "in_app")
+        cat_key = o.get("category", "").lower()
+        product_type = _CATEGORY_TO_TYPE.get(cat_key, ProductType.INVESTMENT)
+        channel = _CHANNEL_MAP.get(o.get("recommended_channel", "in_app"), Channel.IN_APP)
         offers.append(Offer(
             offer_id=o["offer_id"],
             product_id=o["product_id"],
@@ -120,26 +117,25 @@ async def get_offers(
     customer_id: str,
     request: Request,
     top_n: int = Query(default=5, ge=1, le=20, description="Number of offers to return"),
-    authenticated_customer: str = Depends(get_current_customer_id),
+    _authenticated: str = Depends(get_current_customer_id),
 ):
-    """Return top-N ranked offers for the given customer."""
-    # Authorization check: customers can only access their own offers
-    if authenticated_customer != customer_id:
-        raise HTTPException(
-            status_code=403,
-            detail="Not authorized to access offers for this customer",
-        )
+    """Return top-N ranked offers for the given customer.
 
+    Any authenticated user (including bank agents logged in as demo-001)
+    may fetch offers for any customer profile.
+    """
     try:
-        profile = await _fetch_customer_profile(customer_id, request)
+        raw_profile = await _fetch_customer_raw(customer_id, request)
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Failed to fetch profile for %s: %s", customer_id, e)
         raise HTTPException(status_code=500, detail="Failed to retrieve customer profile")
 
+    features = _build_features(raw_profile)
+
     try:
-        ranked_offers = await _call_worker_scoring(profile)
+        ranked_offers = await _call_worker_scoring(customer_id, features)
     except httpx.HTTPStatusError as e:
         logger.error("Worker scoring failed for %s: %s", customer_id, e)
         raise HTTPException(status_code=502, detail="Scoring service unavailable")

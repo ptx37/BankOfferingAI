@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from services.api.routers import offers, profiles, webhooks
+from services.api.routers import customers, offers, profiles, webhooks
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,18 @@ async def lifespan(app: FastAPI):
 
     logger.info("Database and Redis connections established.")
 
+    # Seed customer data from Excel dataset (runs in thread to avoid blocking loop)
+    try:
+        import asyncio
+        import redis as sync_redis
+        from services.api.data_seeder import seed_all
+
+        sync_redis_client = sync_redis.from_url(redis_url, decode_responses=True)
+        await asyncio.to_thread(seed_all, sync_redis_client)
+        sync_redis_client.close()
+    except Exception as exc:
+        logger.warning("Data seeding skipped: %s", exc)
+
     yield
 
     # Shutdown: close connections
@@ -60,6 +72,7 @@ def create_app() -> FastAPI:
         description="Personalized bank product offering engine powered by AI",
         version="1.0.0",
         lifespan=lifespan,
+        redirect_slashes=False,
     )
 
     # CORS
@@ -80,6 +93,7 @@ def create_app() -> FastAPI:
 
     # Routers
     app.include_router(offers.router, prefix="/offers", tags=["offers"])
+    app.include_router(customers.router, prefix="/customers", tags=["customers"])
     app.include_router(profiles.router, prefix="/profiles", tags=["profiles"])
     app.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 
