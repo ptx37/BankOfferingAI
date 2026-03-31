@@ -154,6 +154,15 @@ async def get_offers(
 
     features = _build_features(raw_profile)
 
+    # Merge disabled products into existing_products so worker excludes them from scoring
+    try:
+        disabled: set[str] = set(await redis.smembers("catalog:disabled"))
+        if disabled:
+            existing = set(features.get("existing_products", []))
+            features["existing_products"] = list(existing | disabled)
+    except Exception as e:
+        logger.warning("Could not fetch disabled products: %s", e)
+
     try:
         ranked_offers, audit_trail = await _call_worker_scoring(customer_id, features)
     except httpx.HTTPStatusError as e:

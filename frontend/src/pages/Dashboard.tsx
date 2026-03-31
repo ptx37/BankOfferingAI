@@ -78,7 +78,12 @@ export default function Dashboard() {
       window.location.href = '/login';
       return;
     }
-    setAuthId(localStorage.getItem('customer_id') || 'demo-001');
+    // Redirect to role-specific portals
+    const role = localStorage.getItem('role');
+    if (role === 'admin') { window.location.href = '/admin'; return; }
+    if (role === 'customer') { window.location.href = '/customer'; return; }
+    if (role === 'employee') { window.location.href = '/employee'; return; }
+    setAuthId(localStorage.getItem('customer_id') || localStorage.getItem('user_id') || 'demo-001');
   }, []);
 
   // ── Customers list ────────────────────────────────────────────────────────

@@ -3,7 +3,8 @@ import { useRouter } from 'next/router';
 
 export default function Login() {
   const router = useRouter();
-  const [agentId, setAgentId] = useState('demo-001');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -12,18 +13,52 @@ export default function Login() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/auth/token?customer_id=${agentId}`, { method: 'POST' });
-      if (!res.ok) throw new Error('Auth failed');
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || 'Authentication failed');
+      }
       const data = await res.json();
       localStorage.setItem('auth_token', data.access_token);
-      localStorage.setItem('customer_id', data.customer_id);
-      router.push('/Dashboard');
-    } catch {
-      setError('Sign in failed. Verify the agent ID and ensure the service is available.');
+      localStorage.setItem('user_id', data.customer_id);
+      localStorage.setItem('role', data.role);
+      localStorage.setItem('display_name', data.display_name);
+
+      if (data.role === 'admin') router.push('/admin');
+      else if (data.role === 'employee') router.push('/employee');
+      else router.push('/customer');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Sign in failed. Please try again.');
     } finally {
       setLoading(false);
     }
   }
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    border: '0.5px solid var(--color-border-tertiary)',
+    borderRadius: 8,
+    padding: '8px 10px',
+    fontSize: 13,
+    color: 'var(--color-text-primary)',
+    background: 'var(--color-background-primary)',
+    outline: 'none',
+    boxSizing: 'border-box',
+  };
+
+  const labelStyle: React.CSSProperties = {
+    display: 'block',
+    fontSize: 11,
+    fontWeight: 500,
+    color: 'var(--color-text-secondary)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    marginBottom: 6,
+  };
 
   return (
     <div style={{
@@ -41,18 +76,11 @@ export default function Login() {
         width: '100%',
         maxWidth: 360,
       }}>
-        {/* Header */}
-        <div style={{ marginBottom: 32 }}>
+        <div style={{ marginBottom: 28 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
             <div style={{
-              width: 36,
-              height: 36,
-              borderRadius: 8,
-              background: '#0C447C',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
+              width: 36, height: 36, borderRadius: 8, background: '#0C447C',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
             }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="2" y="7" width="20" height="14" rx="2" />
@@ -61,75 +89,60 @@ export default function Login() {
             </div>
             <div>
               <p style={{ fontSize: 15, fontWeight: 500, color: 'var(--color-text-primary)', lineHeight: 1.2 }}>
-                Customer Offer Center
+                BankOffer AI
               </p>
-              <p style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>Internal Banking Tool</p>
+              <p style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>Secure Sign In</p>
             </div>
           </div>
-          <p style={{
-            fontSize: 11,
-            textTransform: 'uppercase',
-            letterSpacing: '0.04em',
-            color: 'var(--color-text-secondary)',
-            fontWeight: 500,
-          }}>
-            Agent Sign In
-          </p>
         </div>
 
-        <form onSubmit={handleLogin}>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{
-              display: 'block',
-              fontSize: 11,
-              fontWeight: 500,
-              color: 'var(--color-text-secondary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.04em',
-              marginBottom: 6,
-            }}>
-              Agent ID
-            </label>
+        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <label style={labelStyle}>Username</label>
             <input
               type="text"
-              value={agentId}
-              onChange={e => setAgentId(e.target.value)}
-              autoComplete="off"
-              style={{
-                width: '100%',
-                border: '0.5px solid var(--color-border-tertiary)',
-                borderRadius: 8,
-                padding: '8px 10px',
-                fontSize: 13,
-                color: 'var(--color-text-primary)',
-                background: 'var(--color-background-primary)',
-                outline: 'none',
-              }}
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              autoComplete="username"
+              placeholder="e.g. demo-001"
+              style={inputStyle}
               onFocus={e => (e.target.style.borderColor = '#378ADD')}
               onBlur={e => (e.target.style.borderColor = 'var(--color-border-tertiary)')}
-              placeholder="e.g. demo-001"
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              autoComplete="current-password"
+              placeholder="••••••••"
+              style={inputStyle}
+              onFocus={e => (e.target.style.borderColor = '#378ADD')}
+              onBlur={e => (e.target.style.borderColor = 'var(--color-border-tertiary)')}
             />
           </div>
 
           {error && (
-            <p style={{ fontSize: 11, color: 'var(--color-negative)', marginBottom: 14, lineHeight: 1.4 }}>
+            <p style={{ fontSize: 11, color: 'var(--color-negative)', lineHeight: 1.4, margin: 0 }}>
               {error}
             </p>
           )}
 
           <button
             type="submit"
-            disabled={loading || !agentId.trim()}
+            disabled={loading || !username.trim() || !password.trim()}
             style={{
               width: '100%',
-              background: loading || !agentId.trim() ? 'var(--color-text-muted)' : '#185FA5',
+              background: loading || !username.trim() || !password.trim() ? 'var(--color-text-muted)' : '#185FA5',
               color: 'white',
               border: 'none',
               borderRadius: 8,
               padding: '9px 12px',
               fontSize: 13,
               fontWeight: 500,
-              cursor: loading || !agentId.trim() ? 'not-allowed' : 'pointer',
+              cursor: loading || !username.trim() || !password.trim() ? 'not-allowed' : 'pointer',
               transition: 'background 0.15s',
             }}
           >
@@ -137,13 +150,12 @@ export default function Login() {
           </button>
         </form>
 
-        <div style={{
-          marginTop: 24,
-          paddingTop: 16,
-          borderTop: '0.5px solid var(--color-border-tertiary)',
-        }}>
-          <p style={{ fontSize: 11, color: 'var(--color-text-muted)', textAlign: 'center' }}>
-            Demo access — agent ID: <span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>demo-001</span>
+        <div style={{ marginTop: 24, paddingTop: 16, borderTop: '0.5px solid var(--color-border-tertiary)' }}>
+          <p style={{ fontSize: 11, color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
+            Demo accounts:<br />
+            <span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>demo-001</span> / employee123<br />
+            <span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>admin-001</span> / admin123<br />
+            <span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>CUST-001</span> / customer123
           </p>
         </div>
       </div>

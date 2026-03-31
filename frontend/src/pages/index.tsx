@@ -6,11 +6,11 @@ export default function Home() {
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token');
-    if (token) {
-      router.push('/Dashboard');
-    } else {
-      router.push('/login');
-    }
+    if (!token) { router.push('/login'); return; }
+    const role = localStorage.getItem('role');
+    if (role === 'admin') router.push('/admin');
+    else if (role === 'customer') router.push('/customer');
+    else router.push('/employee');
   }, [router]);
 
   return (
