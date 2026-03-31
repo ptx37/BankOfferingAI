@@ -1,14 +1,56 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import TopBarControls from '../components/TopBarControls';
 import { useTranslation } from '../lib/i18n';
+import { CATALOG_PRODUCTS, CATEGORY_COLORS } from '../lib/products';
+import type { CatalogProduct, ProductCategory, ProductStatus } from '../lib/products';
+
+type AdminTab = 'killswitch' | 'catalog' | 'productform' | 'users' | 'audit';
 
 interface User { user_id: string; role: string; display_name: string; is_active: boolean; }
-interface Product { product_id: string; product_name: string; category: string; description: string; recommended_channel: string; enabled: boolean; }
 interface KillSwitch { active: boolean; reason?: string; set_by?: string; set_at?: string; }
-interface AuditRecord { audit_id: string; timestamp: string; customer_id: string; model_version: string; llm_used: boolean; llm_model: string | null; compliance: Record<string, unknown>; }
+interface AuditRecord {
+  audit_id: string; timestamp: string; customer_id: string;
+  model_version: string; llm_used: boolean; llm_model: string | null;
+  compliance: Record<string, unknown>;
+}
 
-type Tab = 'killswitch' | 'products' | 'users' | 'audit';
+interface ProductForm {
+  name: string;
+  category: ProductCategory | '';
+  status: ProductStatus;
+  description: string;
+  attributes: { label: string; value: string }[];
+  interestRate: string;
+  creditLimit: string;
+  eligibility: string;
+  channel: string;
+  priority: string;
+  triggerSignals: string;
+  code: string;
+  effectiveDate: string;
+}
+
+interface FormErrors {
+  name?: string;
+  category?: string;
+  description?: string;
+  code?: string;
+  effectiveDate?: string;
+}
+
+const EMPTY_FORM: ProductForm = {
+  name: '', category: '', status: 'active', description: '',
+  attributes: [{ label: '', value: '' }],
+  interestRate: '', creditLimit: '', eligibility: '',
+  channel: '', priority: 'medium', triggerSignals: '',
+  code: '', effectiveDate: '',
+};
+
+const ALL_CATEGORIES: ProductCategory[] = [
+  'Investments', 'Savings', 'Retirement', 'Lending', 'Cards', 'Insurance',
+];
 
 function authHeader() {
   const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : '';
@@ -18,13 +60,41 @@ function authHeader() {
 export async function getServerSideProps() { return { props: {} }; }
 
 export default function AdminPortal() {
+  const router = useRouter();
   const { t } = useTranslation();
-  const [tab, setTab] = useState<Tab>('killswitch');
   const [displayName, setDisplayName] = useState('');
+  const queryClient = useQueryClient();
+
+  // Tab state (URL-persisted)
+  const [activeTab, setActiveTab] = useState<AdminTab>('killswitch');
+
+  useEffect(() => {
+    const tab = router.query.tab as AdminTab;
+    if (tab && ['killswitch', 'catalog', 'productform', 'users', 'audit'].includes(tab)) {
+      setActiveTab(tab);
+    }
+  }, [router.query.tab]);
+
+  function goToTab(tab: AdminTab) {
+    setActiveTab(tab);
+    router.push({ pathname: '/admin', query: { tab } }, undefined, { shallow: true });
+  }
+
+  // Kill switch state
+  const [killReason, setKillReason] = useState('');
+
+  // Product Catalog: expanded desc
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  // Product Definition Form
+  const [form, setForm] = useState<ProductForm>(EMPTY_FORM);
+  const [formErrors, setFormErrors] = useState<FormErrors>({});
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formToast, setFormToast] = useState('');
+
+  // Audit
   const [auditCustomerId, setAuditCustomerId] = useState('');
   const [auditSearch, setAuditSearch] = useState('');
-  const [killReason, setKillReason] = useState('');
-  const queryClient = useQueryClient();
 
   useEffect(() => {
     const role = localStorage.getItem('role');
@@ -34,6 +104,7 @@ export default function AdminPortal() {
     setDisplayName(localStorage.getItem('display_name') || 'Admin');
   }, []);
 
+  // ── Kill switch ──
   const { data: ksData, refetch: refetchKs } = useQuery<KillSwitch>({
     queryKey: ['kill-switch'],
     queryFn: () => fetch('/api/compliance/kill-switch', { headers: authHeader() }).then(r => r.json()),
@@ -50,10 +121,11 @@ export default function AdminPortal() {
     onSuccess: () => { refetchKs(); setKillReason(''); },
   });
 
+  // ── Users ──
   const { data: usersData } = useQuery<{ users: User[] }>({
     queryKey: ['admin-users'],
     queryFn: () => fetch('/api/admin/users', { headers: authHeader() }).then(r => r.json()),
-    enabled: tab === 'users' && !!displayName, staleTime: 30_000,
+    enabled: activeTab === 'users' && !!displayName, staleTime: 30_000,
   });
 
   const updateUserMutation = useMutation({
@@ -66,18 +138,7 @@ export default function AdminPortal() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-users'] }),
   });
 
-  const { data: productsData } = useQuery<{ products: Product[] }>({
-    queryKey: ['admin-products'],
-    queryFn: () => fetch('/api/admin/products', { headers: authHeader() }).then(r => r.json()),
-    enabled: tab === 'products' && !!displayName, staleTime: 30_000,
-  });
-
-  const toggleProductMutation = useMutation({
-    mutationFn: (product_id: string) =>
-      fetch(`/api/admin/products/${product_id}/toggle`, { method: 'POST', headers: authHeader() }).then(r => r.json()),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-products'] }),
-  });
-
+  // ── Audit ──
   const { data: auditData, refetch: refetchAudit, isFetching: auditFetching } = useQuery<{ audit_records: AuditRecord[]; total: number }>({
     queryKey: ['admin-audit', auditSearch],
     queryFn: () => fetch(`/api/admin/audit?customer_id=${auditSearch}`, { headers: authHeader() }).then(r => r.json()),
@@ -86,14 +147,107 @@ export default function AdminPortal() {
 
   function signOut() { localStorage.clear(); window.location.href = '/login'; }
 
+  // ── Form helpers ──
+  function validateForm(f: ProductForm): FormErrors {
+    const errors: FormErrors = {};
+    if (!f.name.trim()) errors.name = t('admin.errName');
+    else if (f.name.length > 80) errors.name = t('admin.errName');
+    if (!f.category) errors.category = t('admin.errCategory');
+    if (f.description.length > 300) errors.description = t('admin.errDescLen');
+    if (!f.code.trim()) errors.code = t('admin.errCode');
+    else if (!/^[A-Z0-9]{4,12}$/.test(f.code)) errors.code = t('admin.errCode');
+    if (!f.effectiveDate) errors.effectiveDate = t('admin.errDatePast');
+    else {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      if (new Date(f.effectiveDate) < today) errors.effectiveDate = t('admin.errDatePast');
+    }
+    return errors;
+  }
+
+  function handleEdit(p: CatalogProduct) {
+    setEditingId(p.id);
+    setForm({
+      name: p.name,
+      category: p.category,
+      status: p.status,
+      description: p.description,
+      attributes: p.attributes.map(a => ({ label: a.label, value: a.value })),
+      interestRate: p.interestRate?.toString() ?? '',
+      creditLimit: p.creditLimit?.toString() ?? '',
+      eligibility: p.eligibility ?? '',
+      channel: p.channel ?? '',
+      priority: p.priority ?? 'medium',
+      triggerSignals: p.triggerSignals ?? '',
+      code: p.code,
+      effectiveDate: p.effectiveDate,
+    });
+    setFormErrors({});
+    goToTab('productform');
+  }
+
+  function handleSave() {
+    const errors = validateForm(form);
+    setFormErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+    // In production: POST/PUT /api/admin/products
+    setFormToast(t('admin.productSaved'));
+    setTimeout(() => setFormToast(''), 3500);
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+  }
+
+  function handleCancel() {
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    setFormErrors({});
+    goToTab('catalog');
+  }
+
+  function updateAttr(idx: number, field: 'label' | 'value', val: string) {
+    setForm(prev => {
+      const attrs = [...prev.attributes];
+      attrs[idx] = { ...attrs[idx], [field]: val };
+      return { ...prev, attributes: attrs };
+    });
+  }
+
+  // ── Styles ──
   const sectionLabel: React.CSSProperties = {
     fontSize: 11, fontWeight: 500, textTransform: 'uppercase',
     letterSpacing: '0.04em', color: 'var(--color-text-secondary)',
   };
 
-  const TABS: { id: Tab; label: string }[] = [
+  const inputStyle: React.CSSProperties = {
+    width: '100%', boxSizing: 'border-box',
+    border: '0.5px solid var(--color-border-tertiary)', borderRadius: 8,
+    padding: '8px 10px', fontSize: 13, outline: 'none',
+    background: 'var(--color-background-secondary)', color: 'var(--color-text-primary)',
+    transition: 'border-color 0.15s',
+  };
+
+  const fieldLabel: React.CSSProperties = {
+    display: 'block', fontSize: 11, fontWeight: 500,
+    color: 'var(--color-text-secondary)', textTransform: 'uppercase',
+    letterSpacing: '0.05em', marginBottom: 6,
+  };
+
+  const errorText: React.CSSProperties = {
+    fontSize: 11, color: 'var(--color-negative)', marginTop: 4,
+  };
+
+  const thStyle: React.CSSProperties = {
+    padding: '10px 14px', textAlign: 'left',
+    fontSize: 11, fontWeight: 500, textTransform: 'uppercase',
+    letterSpacing: '0.04em', color: 'var(--color-text-secondary)',
+    borderBottom: '0.5px solid var(--color-border-tertiary)',
+  };
+
+  const editingProduct = CATALOG_PRODUCTS.find(p => p.id === editingId);
+
+  const TABS: { id: AdminTab; label: string }[] = [
     { id: 'killswitch', label: t('admin.killSwitch') },
-    { id: 'products', label: t('admin.products') },
+    { id: 'catalog', label: t('admin.products') },
+    { id: 'productform', label: t('admin.productDefinition') },
     { id: 'users', label: t('admin.users') },
     { id: 'audit', label: t('admin.auditTrail') },
   ];
@@ -104,6 +258,17 @@ export default function AdminPortal() {
       fontFamily: 'var(--font-sans)', fontSize: 13,
       background: 'var(--color-background-secondary)', color: 'var(--color-text-primary)',
     }}>
+
+      {/* Form success toast */}
+      {formToast && (
+        <div style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
+          background: '#3B6D11', color: 'white',
+          padding: '10px 18px', borderRadius: 8, fontSize: 13, fontWeight: 500,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+        }}>{formToast}</div>
+      )}
+
       {/* Header */}
       <header style={{
         background: 'var(--color-header-bg)', height: 48,
@@ -128,34 +293,42 @@ export default function AdminPortal() {
       <div style={{
         background: 'var(--color-background-primary)',
         borderBottom: '0.5px solid var(--color-border-tertiary)',
-        padding: '0 20px', display: 'flex',
+        padding: '0 20px', display: 'flex', flexShrink: 0,
       }}>
         {TABS.map(tb => (
-          <button key={tb.id} onClick={() => setTab(tb.id)} style={{
+          <button key={tb.id} onClick={() => goToTab(tb.id)} style={{
             padding: '12px 16px', fontSize: 13, fontWeight: 500,
             background: 'none', border: 'none', cursor: 'pointer',
-            color: tab === tb.id ? 'var(--color-action)' : 'var(--color-text-secondary)',
-            borderBottom: tab === tb.id ? '2px solid var(--color-action)' : '2px solid transparent',
+            color: activeTab === tb.id ? 'var(--color-action)' : 'var(--color-text-secondary)',
+            borderBottom: activeTab === tb.id ? '2px solid var(--color-action)' : '2px solid transparent',
             marginBottom: -1, transition: 'color 0.15s',
-          }}>{tb.label}</button>
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            {tb.label}
+            {tb.id === 'productform' && editingId && (
+              <span style={{
+                width: 6, height: 6, borderRadius: '50%', background: 'var(--color-action)', flexShrink: 0,
+              }} />
+            )}
+          </button>
         ))}
       </div>
 
       {/* Content */}
-      <div style={{ flex: 1, padding: 20, maxWidth: 960, width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
+      <div style={{ flex: 1, padding: 20, maxWidth: 1000, width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
 
-        {/* Kill Switch */}
-        {tab === 'killswitch' && (
+        {/* ═══════════════ KILL SWITCH ═══════════════ */}
+        {activeTab === 'killswitch' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{
               background: 'var(--color-background-primary)',
               border: `2px solid ${ksData?.active ? '#A32D2D' : '#3B6D11'}`,
               borderRadius: 12, padding: '20px 24px',
             }}>
-              <div style={{ marginBottom: 14 }}>
-                <p style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>{t('admin.engineTitle')}</p>
+              <div style={{ marginBottom: 16 }}>
+                <p style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>{t('admin.engineTitle')}</p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: ksData?.active ? '#A32D2D' : '#3B6D11' }} />
+                  <div style={{ width: 9, height: 9, borderRadius: '50%', background: ksData?.active ? '#A32D2D' : '#3B6D11' }} />
                   <span style={{ fontSize: 13, fontWeight: 500, color: ksData?.active ? 'var(--color-negative)' : 'var(--color-positive)' }}>
                     {ksData?.active ? t('admin.engineHalted') : t('admin.engineRunning')}
                   </span>
@@ -163,8 +336,10 @@ export default function AdminPortal() {
               </div>
 
               {ksData?.active && (
-                <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.7, marginBottom: 14,
-                  background: 'var(--color-background-secondary)', borderRadius: 8, padding: '10px 14px' }}>
+                <div style={{
+                  fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.7, marginBottom: 16,
+                  background: 'var(--color-background-secondary)', borderRadius: 8, padding: '10px 14px',
+                }}>
                   <span style={{ fontWeight: 500 }}>{t('admin.setBy')}</span> {ksData.set_by} &nbsp;·&nbsp;
                   <span style={{ fontWeight: 500 }}>{t('admin.at')}</span> {ksData.set_at ? new Date(ksData.set_at).toLocaleString() : ''}<br />
                   <span style={{ fontWeight: 500 }}>Reason:</span> {ksData.reason}
@@ -214,55 +389,387 @@ export default function AdminPortal() {
           </div>
         )}
 
-        {/* Products */}
-        {tab === 'products' && (
+        {/* ═══════════════ PRODUCT CATALOG ═══════════════ */}
+        {activeTab === 'catalog' && (
           <div>
-            <p style={{ ...sectionLabel, marginBottom: 14 }}>
-              {t('admin.products_count').replace('{n}', String(productsData?.products.length ?? 0))}
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {(productsData?.products ?? []).map(p => (
-                <div key={p.product_id} style={{
-                  background: 'var(--color-background-primary)',
-                  border: '0.5px solid var(--color-border-tertiary)',
-                  borderRadius: 8, padding: '12px 16px',
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  opacity: p.enabled ? 1 : 0.5,
-                }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                      <span style={{ fontSize: 13, fontWeight: 500 }}>{p.product_name}</span>
-                      <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 10, background: 'var(--color-background-secondary)', color: 'var(--color-text-muted)' }}>
-                        {p.category}
-                      </span>
-                    </div>
-                    <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>{p.description}</p>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-                    <span style={{ fontSize: 11, fontWeight: 500, color: p.enabled ? 'var(--color-positive)' : 'var(--color-negative)' }}>
-                      {p.enabled ? t('admin.enabled') : t('admin.disabled')}
-                    </span>
-                    <button
-                      onClick={() => toggleProductMutation.mutate(p.product_id)}
-                      style={{
-                        fontSize: 11, fontWeight: 500, padding: '4px 12px', borderRadius: 8,
-                        border: `1px solid ${p.enabled ? '#A32D2D' : '#3B6D11'}`,
-                        color: p.enabled ? '#A32D2D' : '#3B6D11',
-                        background: 'transparent', cursor: 'pointer',
-                      }}
-                    >{p.enabled ? t('admin.disable') : t('admin.enable')}</button>
-                  </div>
-                </div>
-              ))}
-              {!productsData && <p style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{t('admin.loadingProducts')}</p>}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <p style={{ fontSize: 15, fontWeight: 600 }}>{t('admin.products')}</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <p style={sectionLabel}>{t('admin.products_count').replace('{n}', String(CATALOG_PRODUCTS.length))}</p>
+                <button
+                  onClick={() => { setEditingId(null); setForm(EMPTY_FORM); setFormErrors({}); goToTab('productform'); }}
+                  style={{
+                    fontSize: 12, fontWeight: 500, padding: '5px 14px', borderRadius: 6,
+                    background: '#185FA5', color: 'white', border: 'none', cursor: 'pointer',
+                  }}
+                >{t('admin.newProduct')}</button>
+              </div>
+            </div>
+
+            <div style={{
+              background: 'var(--color-background-primary)',
+              border: '0.5px solid var(--color-border-tertiary)',
+              borderRadius: 12, overflow: 'hidden',
+            }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: 'var(--color-background-secondary)' }}>
+                    <th style={thStyle}>{t('admin.formName')}</th>
+                    <th style={{ ...thStyle, width: 120 }}>{t('admin.formCategory')}</th>
+                    <th style={{ ...thStyle, width: 80 }}>{t('admin.formStatus')}</th>
+                    <th style={{ ...thStyle, width: 80 }}>Channel</th>
+                    <th style={{ ...thStyle }}>Description</th>
+                    <th style={{ ...thStyle, width: 70, textAlign: 'right' }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {CATALOG_PRODUCTS.map(p => {
+                    const catColor = CATEGORY_COLORS[p.category];
+                    const isExpanded = expanded[p.id];
+                    const shortDesc = p.description.length > 80
+                      ? p.description.slice(0, 80) + '…'
+                      : p.description;
+                    const isEditing = editingId === p.id;
+                    return (
+                      <tr key={p.id} style={{
+                        borderBottom: '0.5px solid var(--color-border-tertiary)',
+                        background: isEditing ? 'var(--color-sidebar-active)' : 'transparent',
+                      }}>
+                        <td style={{ padding: '11px 14px' }}>
+                          <p style={{ fontSize: 13, fontWeight: 500 }}>{p.name}</p>
+                          <p style={{ fontSize: 10, color: 'var(--color-text-muted)', fontFamily: 'monospace', marginTop: 2 }}>{p.code}</p>
+                        </td>
+                        <td style={{ padding: '11px 14px' }}>
+                          <span style={{
+                            fontSize: 10, fontWeight: 600, letterSpacing: '0.04em',
+                            padding: '2px 7px', borderRadius: 10,
+                            background: catColor.bg, color: catColor.text,
+                          }}>{p.category.toUpperCase()}</span>
+                        </td>
+                        <td style={{ padding: '11px 14px' }}>
+                          <span style={{
+                            fontSize: 11, fontWeight: 500,
+                            color: p.status === 'active' ? 'var(--color-positive)' : 'var(--color-text-muted)',
+                          }}>
+                            {p.status === 'active' ? t('admin.enabled') : p.status}
+                          </span>
+                        </td>
+                        <td style={{ padding: '11px 14px' }}>
+                          <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{p.channel}</span>
+                        </td>
+                        <td style={{ padding: '11px 14px', maxWidth: 300 }}>
+                          <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+                            {isExpanded ? p.description : shortDesc}
+                          </p>
+                          {p.description.length > 80 && (
+                            <button
+                              onClick={() => setExpanded(prev => ({ ...prev, [p.id]: !prev[p.id] }))}
+                              style={{
+                                background: 'none', border: 'none', cursor: 'pointer',
+                                fontSize: 11, color: 'var(--color-action)', padding: 0, marginTop: 3,
+                              }}
+                            >{isExpanded ? t('admin.showLess') : t('admin.showMore')}</button>
+                          )}
+                        </td>
+                        <td style={{ padding: '11px 14px', textAlign: 'right' }}>
+                          <button
+                            onClick={() => handleEdit(p)}
+                            style={{
+                              fontSize: 12, fontWeight: 500, padding: '4px 12px', borderRadius: 6,
+                              background: isEditing ? 'var(--color-action)' : 'transparent',
+                              color: isEditing ? 'white' : 'var(--color-action)',
+                              border: '1px solid var(--color-action)', cursor: 'pointer',
+                            }}
+                          >{t('admin.editBtn')}</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
 
-        {/* Users */}
-        {tab === 'users' && (
+        {/* ═══════════════ PRODUCT DEFINITION FORM ═══════════════ */}
+        {activeTab === 'productform' && (
           <div>
-            <p style={{ ...sectionLabel, marginBottom: 14 }}>
+            <div style={{ marginBottom: 16 }}>
+              <p style={{ fontSize: 15, fontWeight: 600, marginBottom: 3 }}>{t('admin.productDefinition')}</p>
+              <p style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+                {editingProduct
+                  ? t('admin.editingProduct').replace('{name}', editingProduct.name)
+                  : t('admin.newProduct')}
+              </p>
+            </div>
+
+            <div style={{
+              background: 'var(--color-background-primary)',
+              border: editingId ? '1px solid var(--color-action)' : '0.5px solid var(--color-border-tertiary)',
+              borderRadius: 12, padding: '22px 26px',
+              display: 'flex', flexDirection: 'column', gap: 20,
+            }}>
+
+              {/* Name + Category */}
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
+                <div>
+                  <label style={fieldLabel}>
+                    {t('admin.formName')} <span style={{ color: 'var(--color-negative)' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={form.name}
+                    maxLength={80}
+                    onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+                    placeholder="e.g. ETF Growth Portfolio"
+                    style={inputStyle}
+                    onFocus={e => (e.target.style.borderColor = '#378ADD')}
+                    onBlur={e => (e.target.style.borderColor = 'var(--color-border-tertiary)')}
+                  />
+                  {formErrors.name && <p style={errorText}>{formErrors.name}</p>}
+                  <p style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 3 }}>{form.name.length}/80</p>
+                </div>
+                <div>
+                  <label style={fieldLabel}>
+                    {t('admin.formCategory')} <span style={{ color: 'var(--color-negative)' }}>*</span>
+                  </label>
+                  <select
+                    value={form.category}
+                    onChange={e => setForm(p => ({ ...p, category: e.target.value as ProductCategory }))}
+                    style={{ ...inputStyle, cursor: 'pointer' }}
+                  >
+                    <option value="">— Select —</option>
+                    {ALL_CATEGORIES.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                  {formErrors.category && <p style={errorText}>{formErrors.category}</p>}
+                </div>
+              </div>
+
+              {/* Status */}
+              <div>
+                <label style={fieldLabel}>{t('admin.formStatus')}</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {(['active', 'draft', 'archived'] as ProductStatus[]).map(s => (
+                    <button
+                      key={s}
+                      onClick={() => setForm(p => ({ ...p, status: s }))}
+                      style={{
+                        fontSize: 12, fontWeight: 500, padding: '5px 14px', borderRadius: 6,
+                        border: `1px solid ${form.status === s ? 'var(--color-action)' : 'var(--color-border-tertiary)'}`,
+                        background: form.status === s ? 'var(--color-action)' : 'transparent',
+                        color: form.status === s ? 'white' : 'var(--color-text-secondary)',
+                        cursor: 'pointer', textTransform: 'capitalize', transition: 'all 0.15s',
+                      }}
+                    >{s}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <label style={fieldLabel}>{t('admin.formDesc')}</label>
+                <textarea
+                  value={form.description}
+                  maxLength={300}
+                  onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
+                  placeholder="Short product description…"
+                  rows={3}
+                  style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.55 }}
+                />
+                {formErrors.description && <p style={errorText}>{formErrors.description}</p>}
+                <p style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 3 }}>{form.description.length}/300</p>
+              </div>
+
+              {/* Attributes */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <label style={fieldLabel}>{t('admin.formAttribs')}</label>
+                  <button
+                    onClick={() => setForm(p => ({ ...p, attributes: [...p.attributes, { label: '', value: '' }] }))}
+                    style={{
+                      fontSize: 12, fontWeight: 500, padding: '3px 10px', borderRadius: 6,
+                      background: 'transparent', color: 'var(--color-action)',
+                      border: '1px solid var(--color-action)', cursor: 'pointer',
+                    }}
+                  >{t('admin.addAttrib')}</button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {form.attributes.map((attr, idx) => (
+                    <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        value={attr.label}
+                        onChange={e => updateAttr(idx, 'label', e.target.value)}
+                        placeholder="Label"
+                        style={{ ...inputStyle, width: '38%', flexShrink: 0 }}
+                      />
+                      <input
+                        type="text"
+                        value={attr.value}
+                        onChange={e => updateAttr(idx, 'value', e.target.value)}
+                        placeholder="Value"
+                        style={{ ...inputStyle, flex: 1 }}
+                      />
+                      {form.attributes.length > 1 && (
+                        <button
+                          onClick={() => setForm(p => ({ ...p, attributes: p.attributes.filter((_, i) => i !== idx) }))}
+                          style={{
+                            fontSize: 11, padding: '5px 10px', borderRadius: 6, flexShrink: 0,
+                            background: 'transparent', color: 'var(--color-negative)',
+                            border: '1px solid var(--color-negative)', cursor: 'pointer',
+                          }}
+                        >{t('admin.removeAttrib')}</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Interest Rate + Credit Limit */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div>
+                  <label style={fieldLabel}>{t('admin.formRate')}</label>
+                  <input
+                    type="number"
+                    value={form.interestRate}
+                    onChange={e => setForm(p => ({ ...p, interestRate: e.target.value }))}
+                    min={0} max={100} step={0.01}
+                    placeholder="e.g. 4.25"
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label style={fieldLabel}>{t('admin.formLimit')}</label>
+                  <input
+                    type="number"
+                    value={form.creditLimit}
+                    onChange={e => setForm(p => ({ ...p, creditLimit: e.target.value }))}
+                    min={0} step={100}
+                    placeholder="e.g. 25000"
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+
+              {/* Channel + Priority */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div>
+                  <label style={fieldLabel}>Channel</label>
+                  <input
+                    type="text"
+                    value={form.channel}
+                    onChange={e => setForm(p => ({ ...p, channel: e.target.value }))}
+                    placeholder="e.g. app, RM, branch"
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label style={fieldLabel}>Priority</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {['high', 'medium', 'low'].map(pr => (
+                      <button
+                        key={pr}
+                        onClick={() => setForm(p => ({ ...p, priority: pr }))}
+                        style={{
+                          fontSize: 12, fontWeight: 500, padding: '5px 14px', borderRadius: 6,
+                          border: `1px solid ${form.priority === pr ? 'var(--color-action)' : 'var(--color-border-tertiary)'}`,
+                          background: form.priority === pr ? 'var(--color-action)' : 'transparent',
+                          color: form.priority === pr ? 'white' : 'var(--color-text-secondary)',
+                          cursor: 'pointer', textTransform: 'capitalize', transition: 'all 0.15s',
+                        }}
+                      >{pr}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Eligibility */}
+              <div>
+                <label style={fieldLabel}>{t('admin.formElig')}</label>
+                <textarea
+                  value={form.eligibility}
+                  maxLength={500}
+                  onChange={e => setForm(p => ({ ...p, eligibility: e.target.value }))}
+                  placeholder="Eligibility criteria…"
+                  rows={2}
+                  style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.55 }}
+                />
+              </div>
+
+              {/* Trigger Signals */}
+              <div>
+                <label style={fieldLabel}>Trigger Signals</label>
+                <input
+                  type="text"
+                  value={form.triggerSignals}
+                  onChange={e => setForm(p => ({ ...p, triggerSignals: e.target.value }))}
+                  placeholder="e.g. idle_cash_high, salary_increase"
+                  style={inputStyle}
+                />
+              </div>
+
+              {/* Code + Effective Date */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div>
+                  <label style={fieldLabel}>
+                    {t('admin.formCode')} <span style={{ color: 'var(--color-negative)' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={form.code}
+                    onChange={e => setForm(p => ({ ...p, code: e.target.value.toUpperCase() }))}
+                    placeholder="e.g. ETFGROW"
+                    maxLength={12}
+                    style={{ ...inputStyle, fontFamily: 'monospace', letterSpacing: '0.05em' }}
+                  />
+                  {formErrors.code && <p style={errorText}>{formErrors.code}</p>}
+                  <p style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 3 }}>
+                    ^[A-Z0-9]&#123;4,12&#125;
+                  </p>
+                </div>
+                <div>
+                  <label style={fieldLabel}>
+                    {t('admin.formDate')} <span style={{ color: 'var(--color-negative)' }}>*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={form.effectiveDate}
+                    onChange={e => setForm(p => ({ ...p, effectiveDate: e.target.value }))}
+                    style={inputStyle}
+                  />
+                  {formErrors.effectiveDate && <p style={errorText}>{formErrors.effectiveDate}</p>}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: 'flex', gap: 10, paddingTop: 4 }}>
+                <button
+                  onClick={handleSave}
+                  style={{
+                    fontSize: 13, fontWeight: 500, padding: '9px 24px', borderRadius: 8,
+                    background: '#185FA5', color: 'white', border: 'none', cursor: 'pointer',
+                  }}
+                >{t('admin.saveProduct')}</button>
+                <button
+                  onClick={handleCancel}
+                  style={{
+                    fontSize: 13, fontWeight: 500, padding: '9px 20px', borderRadius: 8,
+                    background: 'transparent', color: 'var(--color-text-secondary)',
+                    border: '0.5px solid var(--color-border-tertiary)', cursor: 'pointer',
+                  }}
+                >{t('admin.cancelEdit')}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ═══════════════ USERS ═══════════════ */}
+        {activeTab === 'users' && (
+          <div>
+            <p style={{ fontSize: 15, fontWeight: 600, marginBottom: 14 }}>{t('admin.userMgmt')}</p>
+            <p style={{ ...sectionLabel, marginBottom: 10 }}>
               {t('admin.users_count').replace('{n}', String(usersData?.users.length ?? 0))}
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -318,12 +825,15 @@ export default function AdminPortal() {
           </div>
         )}
 
-        {/* Audit */}
-        {tab === 'audit' && (
+        {/* ═══════════════ AUDIT TRAIL ═══════════════ */}
+        {activeTab === 'audit' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <p style={{ fontSize: 15, fontWeight: 600 }}>{t('admin.auditTrail')}</p>
             <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
               <div style={{ flex: 1 }}>
-                <label style={{ ...sectionLabel, display: 'block', marginBottom: 6 }}>{t('admin.auditCustomerId')}</label>
+                <label style={{ ...sectionLabel, display: 'block', marginBottom: 6 }}>
+                  {t('admin.auditCustomerId')}
+                </label>
                 <input
                   type="text"
                   value={auditCustomerId}
@@ -394,6 +904,7 @@ export default function AdminPortal() {
             )}
           </div>
         )}
+
       </div>
     </div>
   );
