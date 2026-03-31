@@ -1,10 +1,7 @@
 import React, { useState } from 'react';
-import { useRouter } from 'next/router';
 
 export default function Login() {
-  const router = useRouter();
   const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -16,21 +13,22 @@ export default function Login() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.detail || 'Authentication failed');
+        throw new Error(data.detail || 'User not found');
       }
       const data = await res.json();
+      localStorage.clear();
       localStorage.setItem('auth_token', data.access_token);
       localStorage.setItem('user_id', data.customer_id);
       localStorage.setItem('role', data.role);
       localStorage.setItem('display_name', data.display_name);
 
-      if (data.role === 'admin') router.push('/admin');
-      else if (data.role === 'employee') router.push('/employee');
-      else router.push('/customer');
+      if (data.role === 'admin') window.location.href = '/admin';
+      else if (data.role === 'employee') window.location.href = '/employee';
+      else window.location.href = '/customer';
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Sign in failed. Please try again.');
     } finally {
@@ -110,20 +108,6 @@ export default function Login() {
               onBlur={e => (e.target.style.borderColor = 'var(--color-border-tertiary)')}
             />
           </div>
-          <div>
-            <label style={labelStyle}>Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              autoComplete="current-password"
-              placeholder="••••••••"
-              style={inputStyle}
-              onFocus={e => (e.target.style.borderColor = '#378ADD')}
-              onBlur={e => (e.target.style.borderColor = 'var(--color-border-tertiary)')}
-            />
-          </div>
-
           {error && (
             <p style={{ fontSize: 11, color: 'var(--color-negative)', lineHeight: 1.4, margin: 0 }}>
               {error}
@@ -132,17 +116,17 @@ export default function Login() {
 
           <button
             type="submit"
-            disabled={loading || !username.trim() || !password.trim()}
+            disabled={loading || !username.trim()}
             style={{
               width: '100%',
-              background: loading || !username.trim() || !password.trim() ? 'var(--color-text-muted)' : '#185FA5',
+              background: loading || !username.trim() ? 'var(--color-text-muted)' : '#185FA5',
               color: 'white',
               border: 'none',
               borderRadius: 8,
               padding: '9px 12px',
               fontSize: 13,
               fontWeight: 500,
-              cursor: loading || !username.trim() || !password.trim() ? 'not-allowed' : 'pointer',
+              cursor: loading || !username.trim() ? 'not-allowed' : 'pointer',
               transition: 'background 0.15s',
             }}
           >
@@ -153,9 +137,9 @@ export default function Login() {
         <div style={{ marginTop: 24, paddingTop: 16, borderTop: '0.5px solid var(--color-border-tertiary)' }}>
           <p style={{ fontSize: 11, color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
             Demo accounts:<br />
-            <span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>demo-001</span> / employee123<br />
-            <span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>admin-001</span> / admin123<br />
-            <span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>CUST-001</span> / customer123
+            <span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>demo-001</span> — Employee<br />
+            <span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>admin-001</span> — Admin<br />
+            <span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>CUST-001</span> — Customer
           </p>
         </div>
       </div>

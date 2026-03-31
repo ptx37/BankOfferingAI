@@ -161,17 +161,16 @@ def create_app() -> FastAPI:
 
     class LoginRequest(BaseModel):
         username: str
-        password: str
 
     @app.post("/auth/login", tags=["auth"])
     async def login(body: LoginRequest, request: Request):
-        """Authenticate with username+password; returns JWT with role."""
+        """Authenticate with username; returns JWT with role."""
         db_engine = request.app.state.db_engine
         try:
             async with db_engine.connect() as conn:
                 result = await conn.execute(
                     text(
-                        "SELECT password_hash, role, display_name FROM users "
+                        "SELECT role, display_name FROM users "
                         "WHERE user_id = :uid AND is_active = true"
                     ),
                     {"uid": body.username},
@@ -181,8 +180,8 @@ def create_app() -> FastAPI:
             logger.error("DB error during login: %s", exc)
             raise HTTPException(status_code=503, detail="Authentication service unavailable")
 
-        if not row or not _verify_password(body.password, row.password_hash):
-            raise HTTPException(status_code=401, detail="Invalid credentials")
+        if not row:
+            raise HTTPException(status_code=401, detail="User not found or inactive")
 
         from jose import jwt as jose_jwt
 
