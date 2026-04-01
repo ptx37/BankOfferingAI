@@ -8,6 +8,7 @@ import { CATALOG_PRODUCTS, CATEGORY_COLORS } from '../lib/products';
 import type { CatalogProduct, ProductCategory, ProductStatus } from '../lib/products';
 import { MOCK_CUSTOMERS } from '../lib/mockData';
 import { getConsent } from '../lib/consentStore';
+import { addNotification } from '../lib/notificationStore';
 
 type AdminTab = 'killswitch' | 'catalog' | 'productdetail' | 'productform' | 'users' | 'audit' | 'compliance' | 'agents';
 
@@ -262,10 +263,25 @@ export default function AdminPortal() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader() },
       }).then(r => r.json()),
-    onSuccess: () => {
+    onSuccess: (data) => {
       refetchAgents();
-      setFormToast('Agent run triggered successfully');
-      setTimeout(() => setFormToast(''), 3500);
+      // Push notifications to eligible customers via localStorage store
+      if (data.status === 'completed' && data.eligible_customers && data.message) {
+        for (const customerId of data.eligible_customers) {
+          addNotification(customerId, {
+            productName: 'ETF Starter Portfolio',
+            productId: 'PROD-001',
+            message: data.message,
+            sentBy: 'ETF Agent',
+          });
+        }
+        setFormToast(`Agent completed — ${data.users_notified} customers notified`);
+      } else if (data.status === 'failed') {
+        setFormToast(`Agent failed: ${data.error || 'Unknown error'}`);
+      } else {
+        setFormToast('Agent run triggered');
+      }
+      setTimeout(() => setFormToast(''), 4000);
     },
   });
 
