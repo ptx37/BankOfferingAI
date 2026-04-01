@@ -74,12 +74,11 @@ export default function Login() {
         throw new Error(data.detail || t('login.userNotFound'));
       }
       const data = await res.json();
-      localStorage.clear();
+      // Clear only auth keys — preserve notifications, consent, theme, lang across logins
       localStorage.setItem('auth_token', data.access_token);
       localStorage.setItem('user_id', data.customer_id);
       localStorage.setItem('role', data.role);
       localStorage.setItem('display_name', data.display_name);
-      // Preserve theme/lang across sign-in
       if (theme !== 'light') localStorage.setItem('theme', theme);
       localStorage.setItem('lang', lang);
 

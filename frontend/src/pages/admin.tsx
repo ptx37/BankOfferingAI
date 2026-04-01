@@ -6,8 +6,10 @@ import type { NavItem } from '../components/Sidebar';
 import { useTranslation } from '../lib/i18n';
 import { CATALOG_PRODUCTS, CATEGORY_COLORS } from '../lib/products';
 import type { CatalogProduct, ProductCategory, ProductStatus } from '../lib/products';
+import { MOCK_CUSTOMERS } from '../lib/mockData';
+import { getConsent } from '../lib/consentStore';
 
-type AdminTab = 'killswitch' | 'catalog' | 'productdetail' | 'productform' | 'users' | 'audit';
+type AdminTab = 'killswitch' | 'catalog' | 'productdetail' | 'productform' | 'users' | 'audit' | 'compliance';
 
 interface User { user_id: string; role: string; display_name: string; is_active: boolean; }
 interface KillSwitch { active: boolean; reason?: string; set_by?: string; set_at?: string; }
@@ -105,6 +107,16 @@ function IcoShield() {
   );
 }
 
+function IcoCompliance() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 11l3 3L22 4" />
+      <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+    </svg>
+  );
+}
+
+
 export async function getServerSideProps() { return { props: {} }; }
 
 export default function AdminPortal() {
@@ -128,7 +140,7 @@ export default function AdminPortal() {
 
   useEffect(() => {
     const tab = router.query.tab as AdminTab;
-    if (tab && ['killswitch', 'catalog', 'productdetail', 'productform', 'users', 'audit'].includes(tab)) {
+    if (tab && ['killswitch', 'catalog', 'productdetail', 'productform', 'users', 'audit', 'compliance'].includes(tab)) {
       if (tab === 'productdetail' && !selectedProductId) {
         setActiveTab('catalog');
       } else {
@@ -311,6 +323,7 @@ export default function AdminPortal() {
     { id: 'productform', label: t('admin.productDefinition'), icon: <IcoPencil /> },
     { id: 'users',       label: t('admin.users'),             icon: <IcoUser /> },
     { id: 'audit',       label: t('admin.auditTrail'),        icon: <IcoShield /> },
+    { id: 'compliance',  label: 'Compliance Stats',           icon: <IcoCompliance /> },
   ];
 
   const TAB_LABELS: Record<AdminTab, string> = {
@@ -320,6 +333,7 @@ export default function AdminPortal() {
     productform:   t('admin.productDefinition'),
     users:         t('admin.users'),
     audit:         t('admin.auditTrail'),
+    compliance:    'Compliance Statistics',
   };
 
   return (
@@ -342,7 +356,7 @@ export default function AdminPortal() {
       {/* Sidebar */}
       <Sidebar
         items={NAV_ITEMS}
-        activeId={activeTab === 'productdetail' ? 'catalog' : activeTab}
+        activeId={activeTab === 'productdetail' ? 'catalog' : (activeTab === 'productform' ? 'productform' : activeTab)}
         onSelect={(id) => goToTab(id as AdminTab)}
         displayName={displayName}
         portalLabel={t('nav.adminPortal')}
@@ -1089,6 +1103,84 @@ export default function AdminPortal() {
                 )}
               </div>
             )}
+
+            {/* ═══════════════ COMPLIANCE STATISTICS ═══════════════ */}
+            {activeTab === 'compliance' && (() => {
+              const total = MOCK_CUSTOMERS.length;
+              const consentTypes = [
+                { key: 'gdpr',       label: 'GDPR / Data Processing', description: 'Consent to process personal and financial data for personalised recommendations.' },
+                { key: 'marketing',  label: 'Marketing Communications', description: 'Consent to receive marketing messages via email, SMS, and push.' },
+                { key: 'profiling',  label: 'AI Profiling',            description: 'Consent to use AI models to build behavioural and financial profiles.' },
+                { key: 'analytics',  label: 'Analytics',               description: 'Consent to use anonymised transaction data for product analytics.' },
+              ] as const;
+
+              const stats = consentTypes.map(ct => {
+                const agreed = MOCK_CUSTOMERS.filter(c => getConsent(c.customer_id)[ct.key]).length;
+                return { ...ct, agreed, declined: total - agreed, pct: Math.round((agreed / total) * 100) };
+              });
+
+              const overallPct = Math.round(stats.reduce((s, st) => s + st.pct, 0) / stats.length);
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                  {/* Summary banner */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+                    {[
+                      { label: 'Total Customers', value: String(total), color: 'var(--color-action)' },
+                      { label: 'Avg Opt-in Rate', value: `${overallPct}%`, color: '#3B6D11' },
+                      { label: 'Consent Types', value: String(consentTypes.length), color: '#7C3AED' },
+                    ].map(card => (
+                      <div key={card.label} style={{ background: 'var(--color-background-primary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 12, padding: '16px 20px' }}>
+                        <p style={{ fontSize: 11, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', marginBottom: 8 }}>{card.label}</p>
+                        <p style={{ fontSize: 28, fontWeight: 700, color: card.color }}>{card.value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Per-consent-type cards */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {stats.map(st => (
+                      <div key={st.key} style={{ background: 'var(--color-background-primary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 12, padding: '18px 24px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                          <div>
+                            <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>{st.label}</p>
+                            <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', maxWidth: 500 }}>{st.description}</p>
+                          </div>
+                          <span style={{ fontSize: 22, fontWeight: 700, color: st.pct >= 70 ? '#3B6D11' : st.pct >= 40 ? '#854F0B' : '#A32D2D', marginLeft: 20, flexShrink: 0 }}>{st.pct}%</span>
+                        </div>
+
+                        {/* Progress bar */}
+                        <div style={{ height: 10, borderRadius: 5, background: 'var(--color-background-secondary)', overflow: 'hidden', marginBottom: 10 }}>
+                          <div style={{ height: '100%', width: `${st.pct}%`, background: st.pct >= 70 ? '#3B6D11' : st.pct >= 40 ? '#F59E0B' : '#A32D2D', borderRadius: 5, transition: 'width 0.4s' }} />
+                        </div>
+
+                        {/* Agreed / Declined counts */}
+                        <div style={{ display: 'flex', gap: 24 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{ width: 10, height: 10, borderRadius: 2, background: '#3B6D11', flexShrink: 0 }} />
+                            <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                              <span style={{ fontWeight: 600, color: '#3B6D11' }}>{st.agreed}</span> agreed
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{ width: 10, height: 10, borderRadius: 2, background: '#A32D2D', flexShrink: 0 }} />
+                            <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                              <span style={{ fontWeight: 600, color: '#A32D2D' }}>{st.declined}</span> declined
+                            </span>
+                          </div>
+                          <span style={{ fontSize: 11, color: 'var(--color-text-muted)', marginLeft: 'auto' }}>out of {total} customers</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ background: 'var(--color-background-primary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 12, padding: '14px 20px', fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.7 }}>
+                    <p style={{ ...sectionLabel, marginBottom: 6 }}>Note</p>
+                    Consent data is derived from the current customer dataset. Statistics are computed at page load and reflect the snapshot at that moment. Individual consent changes take effect immediately across all recommendation channels.
+                  </div>
+                </div>
+              );
+            })()}
 
           </div>
         </div>

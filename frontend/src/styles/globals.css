@@ -130,22 +130,14 @@ a { color: inherit; text-decoration: none; }
    Labels are clipped by each button's overflow:hidden.
    Sidebar itself is overflow:visible so dropdowns can escape. */
 .nav-sidebar {
-  width: 64px;
-  transition: width 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+  width: 226px;
   overflow: visible;
   flex-shrink: 0;
 }
-.nav-sidebar:hover { width: 226px; }
 
-/* Labels: invisible at rest, fade in when sidebar expands */
+/* Labels: always visible */
 .nav-sidebar .sb-label {
-  opacity: 0;
-  transition: opacity 0.08s ease;
-  pointer-events: none;
-}
-.nav-sidebar:hover .sb-label {
   opacity: 1;
-  transition: opacity 0.18s ease 0.1s;
   pointer-events: auto;
 }
 
