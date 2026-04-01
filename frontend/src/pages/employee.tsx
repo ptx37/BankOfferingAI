@@ -196,7 +196,7 @@ export default function EmployeePortal() {
     setTimeout(() => setToast(''), 3500);
   }
 
-  function signOut() { localStorage.clear(); window.location.href = '/login'; }
+  function signOut() { localStorage.removeItem('auth_token'); localStorage.removeItem('role'); localStorage.removeItem('display_name'); localStorage.removeItem('customer_id'); window.location.href = '/login'; }
 
   // --- Computed data ---
   const customers: Customer[] = MOCK_CUSTOMERS;

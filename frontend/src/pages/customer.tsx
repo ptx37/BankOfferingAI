@@ -346,7 +346,7 @@ export default function CustomerPortal() {
   };
   const displayTransactions = mockTransactions.length ? mockTransactions : PLACEHOLDER_TRANSACTIONS;
 
-  function signOut() { localStorage.clear(); window.location.href = '/login'; }
+  function signOut() { localStorage.removeItem('auth_token'); localStorage.removeItem('role'); localStorage.removeItem('display_name'); localStorage.removeItem('customer_id'); window.location.href = '/login'; }
 
   // ── Styles ───────────────────────────────────────────────────────────────────
   const section: React.CSSProperties = {
@@ -619,7 +619,46 @@ export default function CustomerPortal() {
                                 </span>
                               )}
                             </div>
-                            <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>{n.message}</p>
+                            <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.8 }}>
+                              {n.message.split('\n').map((line, i) => {
+                                if (!line.trim()) return <div key={i} style={{ height: 6 }} />;
+                                const etfMatch = line.match(/^(\d)\.\s+(.+?)\s+\((.+?)\)\s+—\s+(.+?)\s+\|\s+(.+)$/);
+                                if (etfMatch) {
+                                  const [, rank, name, ticker, returnPct, gain] = etfMatch;
+                                  const isPositive = returnPct.trim().startsWith('+');
+                                  return (
+                                    <div key={i} style={{
+                                      display: 'flex', alignItems: 'center', gap: 10,
+                                      padding: '8px 12px', borderRadius: 8, marginBottom: 4,
+                                      background: 'var(--color-background-secondary)',
+                                      border: '0.5px solid var(--color-border-tertiary)',
+                                    }}>
+                                      <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text-muted)', width: 18, textAlign: 'center' }}>{rank}</span>
+                                      <div style={{ flex: 1 }}>
+                                        <span style={{ fontWeight: 600, fontSize: 13 }}>{name}</span>
+                                        <span style={{ fontSize: 11, color: 'var(--color-text-muted)', marginLeft: 6, fontFamily: 'monospace' }}>{ticker}</span>
+                                      </div>
+                                      <span style={{ fontWeight: 600, fontSize: 13, color: isPositive ? 'var(--color-positive, #3B6D11)' : 'var(--color-negative, #A32D2D)' }}>{returnPct.trim()}</span>
+                                      <span style={{
+                                        fontWeight: 600, fontSize: 12, padding: '2px 8px', borderRadius: 6,
+                                        background: isPositive ? '#3B6D1118' : '#A32D2D18',
+                                        color: isPositive ? 'var(--color-positive, #3B6D11)' : 'var(--color-negative, #A32D2D)',
+                                      }}>{gain.trim()}</span>
+                                    </div>
+                                  );
+                                }
+                                if (line.startsWith('Had you invested')) {
+                                  return <p key={i} style={{ fontWeight: 500, margin: '4px 0 8px', color: 'var(--color-text-primary)' }}>{line}</p>;
+                                }
+                                if (line.startsWith('Top 5')) {
+                                  return <p key={i} style={{ fontWeight: 700, fontSize: 15, margin: '0 0 2px', color: 'var(--color-text-primary)' }}>{line}</p>;
+                                }
+                                if (line.startsWith('Start your')) {
+                                  return <p key={i} style={{ fontStyle: 'italic', marginTop: 8, color: 'var(--color-action, #185FA5)' }}>{line}</p>;
+                                }
+                                return <p key={i} style={{ margin: 0 }}>{line}</p>;
+                              })}
+                            </div>
                           </div>
                           <span style={{ fontSize: 11, color: 'var(--color-text-muted)', flexShrink: 0 }}>
                             {new Date(n.timestamp).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}

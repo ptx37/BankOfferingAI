@@ -267,8 +267,9 @@ export default function AdminPortal() {
       refetchAgents();
       // Push notifications to eligible customers via localStorage store
       if (data.status === 'completed' && data.eligible_customers && data.message) {
-        for (const customerId of data.eligible_customers) {
-          addNotification(customerId, {
+        for (const cid of data.eligible_customers) {
+          const normalizedId = cid.replace(/^CUST-0*/i, '') || cid;
+          addNotification(normalizedId, {
             productName: 'ETF Starter Portfolio',
             productId: 'PROD-001',
             message: data.message,
@@ -285,7 +286,7 @@ export default function AdminPortal() {
     },
   });
 
-  function signOut() { localStorage.clear(); window.location.href = '/login'; }
+  function signOut() { localStorage.removeItem('auth_token'); localStorage.removeItem('role'); localStorage.removeItem('display_name'); localStorage.removeItem('customer_id'); window.location.href = '/login'; }
 
   // ── Form helpers ──
   function validateForm(f: ProductForm): FormErrors {
@@ -1257,7 +1258,7 @@ export default function AdminPortal() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <p style={{ fontSize: 15, fontWeight: 600 }}>Scheduled Agents</p>
                 <p style={sectionLabel}>
-                  {agentsData?.agents.length ?? 0} agent{(agentsData?.agents.length ?? 0) !== 1 ? 's' : ''} registered
+                  {agentsData?.agents?.length ?? 0} agent{(agentsData?.agents?.length ?? 0) !== 1 ? 's' : ''} registered
                 </p>
               </div>
 

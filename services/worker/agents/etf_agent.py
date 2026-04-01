@@ -100,7 +100,7 @@ async def update_run(
                 completed_at = :completed_at,
                 users_notified = :users_notified,
                 result_summary = :result_summary
-            WHERE id = :run_id::uuid
+            WHERE id = CAST(:run_id AS uuid)
         """), {
             "run_id": run_id,
             "status": status,
