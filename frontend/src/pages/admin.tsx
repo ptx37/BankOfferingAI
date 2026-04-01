@@ -9,7 +9,7 @@ import type { CatalogProduct, ProductCategory, ProductStatus } from '../lib/prod
 import { MOCK_CUSTOMERS } from '../lib/mockData';
 import { getConsent } from '../lib/consentStore';
 
-type AdminTab = 'killswitch' | 'catalog' | 'productdetail' | 'productform' | 'users' | 'audit' | 'compliance';
+type AdminTab = 'killswitch' | 'catalog' | 'productdetail' | 'productform' | 'users' | 'audit' | 'compliance' | 'agents';
 
 interface User { user_id: string; role: string; display_name: string; is_active: boolean; }
 interface KillSwitch { active: boolean; reason?: string; set_by?: string; set_at?: string; }
@@ -17,6 +17,25 @@ interface AuditRecord {
   audit_id: string; timestamp: string; customer_id: string;
   model_version: string; llm_used: boolean; llm_model: string | null;
   compliance: Record<string, unknown>;
+}
+
+interface AgentRun {
+  id: string;
+  status: string;
+  started_at: string | null;
+  completed_at: string | null;
+  users_notified: number;
+  result_summary: any;
+  triggered_by: string;
+}
+
+interface AgentInfo {
+  agent_id: string;
+  name: string;
+  description: string;
+  schedule: string;
+  last_run: AgentRun | null;
+  history: AgentRun[];
 }
 
 interface ProductForm {
@@ -116,6 +135,15 @@ function IcoCompliance() {
   );
 }
 
+function IcoAgent() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+    </svg>
+  );
+}
+
 
 export async function getServerSideProps() { return { props: {} }; }
 
@@ -140,7 +168,7 @@ export default function AdminPortal() {
 
   useEffect(() => {
     const tab = router.query.tab as AdminTab;
-    if (tab && ['killswitch', 'catalog', 'productdetail', 'productform', 'users', 'audit', 'compliance'].includes(tab)) {
+    if (tab && ['killswitch', 'catalog', 'productdetail', 'productform', 'users', 'audit', 'compliance', 'agents'].includes(tab)) {
       if (tab === 'productdetail' && !selectedProductId) {
         setActiveTab('catalog');
       } else {
@@ -168,6 +196,9 @@ export default function AdminPortal() {
   // Audit
   const [auditCustomerId, setAuditCustomerId] = useState('');
   const [auditSearch, setAuditSearch] = useState('');
+
+  // Agents
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
 
   useEffect(() => {
     const role = localStorage.getItem('role');
@@ -216,6 +247,26 @@ export default function AdminPortal() {
     queryKey: ['admin-audit', auditSearch],
     queryFn: () => fetch(`/api/admin/audit?customer_id=${auditSearch}`, { headers: authHeader() }).then(r => r.json()),
     enabled: false,
+  });
+
+  // ── Agents ──
+  const { data: agentsData, refetch: refetchAgents } = useQuery<{ agents: AgentInfo[] }>({
+    queryKey: ['admin-agents'],
+    queryFn: () => fetch('/api/admin/agents', { headers: authHeader() }).then(r => r.json()),
+    enabled: activeTab === 'agents' && !!displayName, staleTime: 10_000,
+  });
+
+  const triggerAgentMutation = useMutation({
+    mutationFn: (agentId: string) =>
+      fetch(`/api/admin/agents/${agentId}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+      }).then(r => r.json()),
+    onSuccess: () => {
+      refetchAgents();
+      setFormToast('Agent run triggered successfully');
+      setTimeout(() => setFormToast(''), 3500);
+    },
   });
 
   function signOut() { localStorage.clear(); window.location.href = '/login'; }
@@ -324,6 +375,7 @@ export default function AdminPortal() {
     { id: 'users',       label: t('admin.users'),             icon: <IcoUser /> },
     { id: 'audit',       label: t('admin.auditTrail'),        icon: <IcoShield /> },
     { id: 'compliance',  label: 'Compliance Stats',           icon: <IcoCompliance /> },
+    { id: 'agents',      label: 'Scheduled Agents',           icon: <IcoAgent /> },
   ];
 
   const TAB_LABELS: Record<AdminTab, string> = {
@@ -334,6 +386,7 @@ export default function AdminPortal() {
     users:         t('admin.users'),
     audit:         t('admin.auditTrail'),
     compliance:    'Compliance Statistics',
+    agents:        'Scheduled Agents',
   };
 
   return (
@@ -1181,6 +1234,139 @@ export default function AdminPortal() {
                 </div>
               );
             })()}
+
+          {/* ═══════════════ SCHEDULED AGENTS ═══════════════ */}
+          {activeTab === 'agents' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <p style={{ fontSize: 15, fontWeight: 600 }}>Scheduled Agents</p>
+                <p style={sectionLabel}>
+                  {agentsData?.agents.length ?? 0} agent{(agentsData?.agents.length ?? 0) !== 1 ? 's' : ''} registered
+                </p>
+              </div>
+
+              {!agentsData && (
+                <p style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Loading agents...</p>
+              )}
+
+              {(agentsData?.agents ?? []).map(agent => (
+                <div key={agent.agent_id} style={{
+                  background: 'var(--color-background-primary)',
+                  border: '0.5px solid var(--color-border-tertiary)',
+                  borderRadius: 12, overflow: 'hidden',
+                }}>
+                  {/* Agent header */}
+                  <div style={{ padding: '18px 24px', display: 'flex', alignItems: 'center', gap: 16 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                        <p style={{ fontSize: 14, fontWeight: 600 }}>{agent.name}</p>
+                        <span style={{
+                          fontSize: 10, fontWeight: 600, letterSpacing: '0.04em',
+                          padding: '2px 8px', borderRadius: 10,
+                          background: '#185FA522', color: '#185FA5',
+                        }}>{agent.schedule.toUpperCase()}</span>
+                      </div>
+                      <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+                        {agent.description}
+                      </p>
+                      {agent.last_run && (
+                        <div style={{ display: 'flex', gap: 16, marginTop: 8 }}>
+                          <div>
+                            <span style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Last run</span>
+                            <p style={{ fontSize: 12, fontWeight: 500, marginTop: 2 }}>
+                              {agent.last_run.started_at ? new Date(agent.last_run.started_at).toLocaleString() : '—'}
+                            </p>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Status</span>
+                            <p style={{
+                              fontSize: 12, fontWeight: 500, marginTop: 2,
+                              color: agent.last_run.status === 'completed' ? 'var(--color-positive)' : agent.last_run.status === 'failed' ? 'var(--color-negative)' : 'var(--color-text-primary)',
+                            }}>
+                              {agent.last_run.status === 'completed' ? 'Completed' : agent.last_run.status === 'running' ? 'Running...' : agent.last_run.status === 'failed' ? 'Failed' : agent.last_run.status}
+                            </p>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Users notified</span>
+                            <p style={{ fontSize: 12, fontWeight: 500, marginTop: 2 }}>{agent.last_run.users_notified}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
+                      <button
+                        onClick={() => triggerAgentMutation.mutate(agent.agent_id)}
+                        disabled={triggerAgentMutation.isPending}
+                        style={{
+                          fontSize: 13, fontWeight: 500, padding: '9px 20px', borderRadius: 8,
+                          background: '#185FA5', color: 'white', border: 'none',
+                          cursor: triggerAgentMutation.isPending ? 'not-allowed' : 'pointer',
+                          opacity: triggerAgentMutation.isPending ? 0.6 : 1,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >{triggerAgentMutation.isPending ? 'Running...' : 'Run Now'}</button>
+                      <button
+                        onClick={() => setExpandedAgent(expandedAgent === agent.agent_id ? null : agent.agent_id)}
+                        style={{
+                          fontSize: 12, fontWeight: 500, padding: '5px 14px', borderRadius: 6,
+                          background: 'transparent', color: 'var(--color-action)',
+                          border: '1px solid var(--color-action)', cursor: 'pointer', whiteSpace: 'nowrap',
+                        }}
+                      >{expandedAgent === agent.agent_id ? 'Hide History' : 'Run History'}</button>
+                    </div>
+                  </div>
+
+                  {/* Run history (expandable) */}
+                  {expandedAgent === agent.agent_id && (
+                    <div style={{
+                      borderTop: '0.5px solid var(--color-border-tertiary)',
+                      padding: '14px 24px',
+                      background: 'var(--color-background-secondary)',
+                    }}>
+                      {agent.history.length === 0 ? (
+                        <p style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>No runs yet.</p>
+                      ) : (
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr>
+                              <th style={{ ...thStyle, background: 'transparent' }}>Started</th>
+                              <th style={{ ...thStyle, background: 'transparent' }}>Status</th>
+                              <th style={{ ...thStyle, background: 'transparent' }}>Users</th>
+                              <th style={{ ...thStyle, background: 'transparent' }}>Triggered By</th>
+                              <th style={{ ...thStyle, background: 'transparent' }}>Duration</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {agent.history.map(run => {
+                              const duration = run.started_at && run.completed_at
+                                ? `${Math.round((new Date(run.completed_at).getTime() - new Date(run.started_at).getTime()) / 1000)}s`
+                                : '—';
+                              return (
+                                <tr key={run.id} style={{ borderBottom: '0.5px solid var(--color-border-tertiary)' }}>
+                                  <td style={{ padding: '8px 14px', fontSize: 12 }}>
+                                    {run.started_at ? new Date(run.started_at).toLocaleString() : '—'}
+                                  </td>
+                                  <td style={{ padding: '8px 14px' }}>
+                                    <span style={{
+                                      fontSize: 11, fontWeight: 500,
+                                      color: run.status === 'completed' ? 'var(--color-positive)' : run.status === 'failed' ? 'var(--color-negative)' : 'var(--color-text-primary)',
+                                    }}>{run.status}</span>
+                                  </td>
+                                  <td style={{ padding: '8px 14px', fontSize: 12 }}>{run.users_notified}</td>
+                                  <td style={{ padding: '8px 14px', fontSize: 12 }}>{run.triggered_by}</td>
+                                  <td style={{ padding: '8px 14px', fontSize: 12 }}>{duration}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
           </div>
         </div>
