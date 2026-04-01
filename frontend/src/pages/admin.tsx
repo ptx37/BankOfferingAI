@@ -7,7 +7,7 @@ import { useTranslation } from '../lib/i18n';
 import { CATALOG_PRODUCTS, CATEGORY_COLORS } from '../lib/products';
 import type { CatalogProduct, ProductCategory, ProductStatus } from '../lib/products';
 
-type AdminTab = 'killswitch' | 'catalog' | 'productform' | 'users' | 'audit';
+type AdminTab = 'killswitch' | 'catalog' | 'productdetail' | 'productform' | 'users' | 'audit';
 
 interface User { user_id: string; role: string; display_name: string; is_active: boolean; }
 interface KillSwitch { active: boolean; reason?: string; set_by?: string; set_at?: string; }
@@ -116,23 +116,36 @@ export default function AdminPortal() {
   // Tab state (URL-persisted)
   const [activeTab, setActiveTab] = useState<AdminTab>('killswitch');
 
+  // Kill switch state
+  const [killReason, setKillReason] = useState('');
+
+  // Product Catalog: expanded desc
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  // Product Detail view
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const selectedProduct = CATALOG_PRODUCTS.find(p => p.id === selectedProductId) ?? null;
+
   useEffect(() => {
     const tab = router.query.tab as AdminTab;
-    if (tab && ['killswitch', 'catalog', 'productform', 'users', 'audit'].includes(tab)) {
-      setActiveTab(tab);
+    if (tab && ['killswitch', 'catalog', 'productdetail', 'productform', 'users', 'audit'].includes(tab)) {
+      if (tab === 'productdetail' && !selectedProductId) {
+        setActiveTab('catalog');
+      } else {
+        setActiveTab(tab);
+      }
     }
-  }, [router.query.tab]);
+  }, [router.query.tab, selectedProductId]);
 
   function goToTab(tab: AdminTab) {
     setActiveTab(tab);
     router.push({ pathname: '/admin', query: { tab } }, undefined, { shallow: true });
   }
 
-  // Kill switch state
-  const [killReason, setKillReason] = useState('');
-
-  // Product Catalog: expanded desc
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  function viewProduct(p: CatalogProduct) {
+    setSelectedProductId(p.id);
+    goToTab('productdetail');
+  }
 
   // Product Definition Form
   const [form, setForm] = useState<ProductForm>(EMPTY_FORM);
@@ -301,11 +314,12 @@ export default function AdminPortal() {
   ];
 
   const TAB_LABELS: Record<AdminTab, string> = {
-    killswitch:  t('admin.killSwitch'),
-    catalog:     t('admin.products'),
-    productform: t('admin.productDefinition'),
-    users:       t('admin.users'),
-    audit:       t('admin.auditTrail'),
+    killswitch:    t('admin.killSwitch'),
+    catalog:       t('admin.products'),
+    productdetail: selectedProduct ? selectedProduct.name : 'Product Detail',
+    productform:   t('admin.productDefinition'),
+    users:         t('admin.users'),
+    audit:         t('admin.auditTrail'),
   };
 
   return (
@@ -328,7 +342,7 @@ export default function AdminPortal() {
       {/* Sidebar */}
       <Sidebar
         items={NAV_ITEMS}
-        activeId={activeTab}
+        activeId={activeTab === 'productdetail' ? 'catalog' : activeTab}
         onSelect={(id) => goToTab(id as AdminTab)}
         displayName={displayName}
         portalLabel={t('nav.adminPortal')}
@@ -485,7 +499,10 @@ export default function AdminPortal() {
                             background: isEditing ? 'var(--color-sidebar-active)' : 'transparent',
                           }}>
                             <td style={{ padding: '11px 14px' }}>
-                              <p style={{ fontSize: 13, fontWeight: 500 }}>{p.name}</p>
+                              <p
+                                onClick={() => viewProduct(p)}
+                                style={{ fontSize: 13, fontWeight: 500, cursor: 'pointer', color: 'var(--color-action)' }}
+                              >{p.name}</p>
                               <p style={{ fontSize: 10, color: 'var(--color-text-muted)', fontFamily: 'monospace', marginTop: 2 }}>{p.code}</p>
                             </td>
                             <td style={{ padding: '11px 14px' }}>
@@ -539,6 +556,125 @@ export default function AdminPortal() {
                 </div>
               </div>
             )}
+
+            {/* ═══════════════ PRODUCT DETAIL ═══════════════ */}
+            {activeTab === 'productdetail' && selectedProduct && (() => {
+              const targetAttr = selectedProduct.attributes.find(a => a.label === 'Target');
+              const catColor = CATEGORY_COLORS[selectedProduct.category];
+              const detailSections = [
+                { label: 'Category', value: selectedProduct.category },
+                { label: 'Target Customer', value: targetAttr?.value ?? '—' },
+                { label: 'Eligibility Criteria', value: selectedProduct.eligibility ?? '—' },
+                { label: 'Suitability Criteria', value: selectedProduct.suitability ?? '—' },
+                { label: 'Trigger Signals', value: selectedProduct.triggerSignals ?? '—' },
+              ];
+              return (
+                <div>
+                  {/* Back + title */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+                    <button
+                      onClick={() => goToTab('catalog')}
+                      style={{
+                        fontSize: 12, fontWeight: 500, padding: '5px 12px', borderRadius: 6,
+                        background: 'transparent', color: 'var(--color-action)',
+                        border: '1px solid var(--color-action)', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', gap: 4,
+                      }}
+                    >
+                      <span style={{ fontSize: 15, lineHeight: 1 }}>&larr;</span> Back to Catalog
+                    </button>
+                  </div>
+
+                  {/* Product header card */}
+                  <div style={{
+                    background: 'var(--color-background-primary)',
+                    border: '0.5px solid var(--color-border-tertiary)',
+                    borderRadius: 12, padding: '24px 28px', marginBottom: 16,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                      <span style={{
+                        fontSize: 10, fontWeight: 600, letterSpacing: '0.04em',
+                        padding: '2px 8px', borderRadius: 10,
+                        background: catColor.bg, color: catColor.text,
+                      }}>{selectedProduct.category.toUpperCase()}</span>
+                      <span style={{
+                        fontSize: 11, fontWeight: 500,
+                        color: selectedProduct.status === 'active' ? 'var(--color-positive)' : 'var(--color-text-muted)',
+                      }}>
+                        {selectedProduct.status === 'active' ? '● Active' : selectedProduct.status}
+                      </span>
+                      <span style={{ fontSize: 10, color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
+                        {selectedProduct.code}
+                      </span>
+                    </div>
+                    <h2 style={{ fontSize: 20, fontWeight: 600, margin: 0, marginBottom: 6 }}>
+                      {selectedProduct.name}
+                    </h2>
+                    <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.6, margin: 0 }}>
+                      {selectedProduct.description}
+                    </p>
+                  </div>
+
+                  {/* Detail sections */}
+                  <div style={{
+                    background: 'var(--color-background-primary)',
+                    border: '0.5px solid var(--color-border-tertiary)',
+                    borderRadius: 12, overflow: 'hidden',
+                  }}>
+                    {detailSections.map((section, idx) => (
+                      <div
+                        key={section.label}
+                        style={{
+                          padding: '16px 28px',
+                          borderBottom: idx < detailSections.length - 1 ? '0.5px solid var(--color-border-tertiary)' : 'none',
+                          display: 'flex', flexDirection: 'column', gap: 6,
+                        }}
+                      >
+                        <span style={{
+                          fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
+                          letterSpacing: '0.06em', color: 'var(--color-text-muted)',
+                        }}>
+                          {section.label}
+                        </span>
+                        {section.label === 'Trigger Signals' && section.value !== '—' ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {section.value.split(',').map(s => s.trim()).filter(Boolean).map(signal => (
+                              <span key={signal} style={{
+                                fontSize: 11, fontWeight: 500, fontFamily: 'monospace',
+                                padding: '3px 10px', borderRadius: 6,
+                                background: 'var(--color-background-secondary)',
+                                border: '0.5px solid var(--color-border-tertiary)',
+                                color: 'var(--color-text-secondary)',
+                              }}>{signal}</span>
+                            ))}
+                          </div>
+                        ) : section.label === 'Category' ? (
+                          <span style={{
+                            fontSize: 13, fontWeight: 500,
+                            color: catColor.text,
+                          }}>{section.value}</span>
+                        ) : (
+                          <span style={{ fontSize: 13, color: 'var(--color-text-primary)', lineHeight: 1.6 }}>
+                            {section.value}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Edit button */}
+                  <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
+                    <button
+                      onClick={() => handleEdit(selectedProduct)}
+                      style={{
+                        fontSize: 13, fontWeight: 500, padding: '9px 24px', borderRadius: 8,
+                        background: '#185FA5', color: 'white', border: 'none', cursor: 'pointer',
+                      }}
+                    >{t('admin.editBtn')}</button>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* ═══════════════ PRODUCT DEFINITION FORM ═══════════════ */}
             {activeTab === 'productform' && (
