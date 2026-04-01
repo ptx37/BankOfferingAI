@@ -67,6 +67,22 @@ async def _seed_default_users(engine) -> None:
             """), {"uid": user_id, "ph": password_hash, "role": role, "dn": display_name})
 
 
+async def _ensure_agent_runs_table(engine) -> None:
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS agent_runs (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                agent_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                started_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP WITH TIME ZONE,
+                users_notified INT DEFAULT 0,
+                result_summary JSONB,
+                triggered_by TEXT NOT NULL
+            )
+        """))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage startup and shutdown lifecycle events."""
@@ -98,6 +114,13 @@ async def lifespan(app: FastAPI):
         logger.info("Users table ready.")
     except Exception as exc:
         logger.warning("User table setup skipped: %s", exc)
+
+    # Ensure agent_runs table exists
+    try:
+        await _ensure_agent_runs_table(engine)
+        logger.info("Agent runs table ready.")
+    except Exception as exc:
+        logger.warning("Agent runs table setup skipped: %s", exc)
 
     # Seed customer data from Excel dataset
     try:

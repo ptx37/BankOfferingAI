@@ -167,6 +167,24 @@ FROM customers c
 WHERE c.customer_id = 'demo-001'
 LIMIT 50;
 
+-- ============================================================================
+-- Agent Runs
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    agent_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    started_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    users_notified INT DEFAULT 0,
+    result_summary JSONB,
+    triggered_by TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_runs_agent_id ON agent_runs(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_started_at ON agent_runs(started_at);
+
 -- Grant permissions
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO postgres;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO postgres;
