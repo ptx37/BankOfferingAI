@@ -35,17 +35,13 @@ def compose_notification(etfs: list[ETFResult]) -> str:
 async def get_eligible_customers(engine: AsyncEngine) -> list[str]:
     """Return customer IDs eligible for ETF Starter Portfolio.
 
-    Criteria: age >= 18, income > 3000, active account.
+    Uses the users table directly — customer_profiles are sparsely populated.
     """
     query = text("""
-        SELECT u.user_id
-        FROM users u
-        JOIN customers c ON c.customer_id = u.user_id
-        JOIN customer_profiles cp ON cp.customer_id = c.id
-        WHERE u.is_active = true
-          AND u.role = 'customer'
-          AND cp.avg_monthly_income > 3000
-          AND c.date_of_birth <= CURRENT_DATE - INTERVAL '18 years'
+        SELECT user_id
+        FROM users
+        WHERE is_active = true
+          AND role = 'customer'
     """)
     async with engine.connect() as conn:
         result = await conn.execute(query)
