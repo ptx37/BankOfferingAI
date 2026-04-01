@@ -286,7 +286,13 @@ export default function AdminPortal() {
     },
   });
 
-  function signOut() { localStorage.removeItem('auth_token'); localStorage.removeItem('role'); localStorage.removeItem('display_name'); localStorage.removeItem('customer_id'); window.location.href = '/login'; }
+  function signOut() {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user_id');
+    localStorage.removeItem('role');
+    localStorage.removeItem('display_name');
+    window.location.href = '/login';
+  }
 
   // ── Form helpers ──
   function validateForm(f: ProductForm): FormErrors {

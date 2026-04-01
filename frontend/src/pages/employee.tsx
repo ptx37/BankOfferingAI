@@ -72,7 +72,16 @@ function StarRating({ score }: { score: number }) {
 }
 
 function ConsentDot({ value }: { value: boolean }) {
-  return <div style={{ width: 8, height: 8, borderRadius: '50%', background: value ? 'var(--color-positive)' : 'var(--color-border-tertiary)' }} />;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{
+        width: 14, height: 14, borderRadius: '50%',
+        background: value ? 'var(--color-positive)' : 'var(--color-border-tertiary)',
+        boxShadow: value ? '0 0 0 3px rgba(11,157,108,0.18)' : 'none',
+        transition: 'background 0.15s',
+      }} />
+    </div>
+  );
 }
 
 function EligibilityBar({ product, customers }: { product: CatalogProduct; customers: Customer[] }) {
@@ -128,8 +137,10 @@ export default function EmployeePortal() {
   const [toast, setToast] = useState('');
 
   // Dashboard
-  const [dashSortAsc, setDashSortAsc] = useState(false);
+  const [dashSortCol, setDashSortCol] = useState<'id' | 'segment'>('id');
+  const [dashSortAsc, setDashSortAsc] = useState(true);
   const [dashProductId, setDashProductId] = useState<string | null>(null);
+  const [allSentOffers, setAllSentOffers] = useState<AppNotification[]>([]);
 
   // Customers tab
   const [searchQuery, setSearchQuery] = useState('');
@@ -144,6 +155,17 @@ export default function EmployeePortal() {
     }
     setDisplayName(localStorage.getItem('display_name') || 'Employee');
   }, []);
+
+  function refreshSentOffers(name: string) {
+    const all = MOCK_CUSTOMERS.flatMap(c => getNotifications(c.customer_id))
+      .filter(n => n.sentBy === name)
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+    setAllSentOffers(all);
+  }
+
+  useEffect(() => {
+    if (displayName) refreshSentOffers(displayName);
+  }, [displayName]);
 
   useEffect(() => {
     const tab = router.query.tab as TabId;
@@ -175,28 +197,43 @@ export default function EmployeePortal() {
   }
 
   function openCustomerFromDashboard(id: string) {
-    setOpenCustomerId(id);
-    setActiveTab('customers');
-    router.push({ pathname: '/employee', query: { tab: 'customers' } }, undefined, { shallow: true });
+    setOpenCustomerId(prev => prev === id ? null : id);
   }
 
   function sendOffer(product: CatalogProduct) {
     if (!openCustomerId || sentOffers.has(product.id)) return;
     const consent = getConsent(openCustomerId);
     if (!consent.gdpr) return;
-    addNotification(openCustomerId, {
+    const notifId = `notif_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const payload = {
+      id: notifId,
       productName: product.name,
       productId: product.id,
       message: `Your relationship manager recommends the ${product.name} based on your financial profile.`,
       sentBy: displayName || 'Employee',
-    });
+    };
+    // Write to localStorage (same-browser instant) with shared ID
+    addNotification(openCustomerId, payload, notifId);
+    // Write to server-side store (cross-browser, Redis-backed, persistent) with same ID
+    fetch(`/api/notifications/${openCustomerId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
     setSentOffers(prev => new Set([...prev, product.id]));
     setDrawerNotifs(getNotifications(openCustomerId));
+    refreshSentOffers(displayName || 'Employee');
     setToast(`Offer "${product.name}" sent to customer ${openCustomerId}`);
     setTimeout(() => setToast(''), 3500);
   }
 
-  function signOut() { localStorage.removeItem('auth_token'); localStorage.removeItem('role'); localStorage.removeItem('display_name'); localStorage.removeItem('customer_id'); window.location.href = '/login'; }
+  function signOut() {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user_id');
+    localStorage.removeItem('role');
+    localStorage.removeItem('display_name');
+    window.location.href = '/login';
+  }
 
   // --- Computed data ---
   const customers: Customer[] = MOCK_CUSTOMERS;
@@ -206,9 +243,12 @@ export default function EmployeePortal() {
   const openCustomer = customers.find(c => c.customer_id === openCustomerId);
   const openConsent = openCustomerId ? getConsent(openCustomerId) : null;
   const customerRecommendations = openCustomer ? getMatchingProducts(openCustomer) : [];
-  const sortedCustomers = [...customers].sort((a, b) =>
-    dashSortAsc ? a.match_score - b.match_score : b.match_score - a.match_score
-  );
+  const sortedCustomers = [...customers].sort((a, b) => {
+    const cmp = dashSortCol === 'id'
+      ? parseInt(a.customer_id) - parseInt(b.customer_id)
+      : a.segment.localeCompare(b.segment);
+    return dashSortAsc ? cmp : -cmp;
+  });
   const dashProduct = CATALOG_PRODUCTS.find(p => p.id === dashProductId) ?? null;
 
   // --- Styles ---
@@ -290,107 +330,146 @@ export default function EmployeePortal() {
         <div style={{ flex: 1, overflowY: 'auto' }}>
           <div style={{
             padding: 24,
-            ...(activeTab !== 'dashboard' ? { maxWidth: 1080, margin: '0 auto' } : {}),
             width: '100%', boxSizing: 'border-box',
           }}>
 
             {/* ═══════════════════ DASHBOARD ═══════════════════ */}
             {activeTab === 'dashboard' && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-                {/* Left — Customer table */}
-                <div style={panel}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                    <p style={sectionLabel}>All Customers · {customers.length}</p>
-                    <button
-                      onClick={() => setDashSortAsc(p => !p)}
-                      style={{
-                        background: 'none', border: 'none', cursor: 'pointer',
-                        fontSize: 11, fontWeight: 500, color: 'var(--color-action)',
-                        display: 'flex', alignItems: 'center', gap: 4,
-                        textTransform: 'uppercase', letterSpacing: '0.04em', padding: 0,
-                      }}
-                    >
-                      Match Score {dashSortAsc ? '↑' : '↓'}
-                    </button>
+                {/* Top row — Customer table + Product Catalog */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }}>
+
+                  {/* Left — Customer table */}
+                  <div style={panel}>
+                    <p style={{ ...sectionLabel, marginBottom: 14 }}>All Customers · {customers.length}</p>
+                    <div style={{ maxHeight: 560, overflowY: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead style={{ position: 'sticky', top: 0, background: 'var(--color-background-primary)', zIndex: 1 }}>
+                          <tr>
+                            {([
+                              { label: 'Customer ID', col: 'id' },
+                              { label: 'Segment', col: 'segment' },
+                            ] as { label: string; col: 'id' | 'segment' }[]).map(({ label, col }) => (
+                              <th
+                                key={col}
+                                onClick={() => {
+                                  if (dashSortCol === col) setDashSortAsc(p => !p);
+                                  else { setDashSortCol(col); setDashSortAsc(true); }
+                                }}
+                                style={{ ...thStyle, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+                              >
+                                {label} {dashSortCol === col ? (dashSortAsc ? '↑' : '↓') : <span style={{ opacity: 0.3 }}>↕</span>}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sortedCustomers.map((c) => {
+                            const bg = AVATAR_BG[c.segment] ?? AVATAR_BG.Other;
+                            return (
+                              <tr
+                                key={c.customer_id}
+                                onClick={() => openCustomerFromDashboard(c.customer_id)}
+                                style={{ borderBottom: '0.5px solid var(--color-border-tertiary)', cursor: 'pointer' }}
+                                onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-background-secondary)')}
+                                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                              >
+                                <td style={tdStyle}>
+                                  <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>{c.customer_id}</span>
+                                </td>
+                                <td style={tdStyle}>
+                                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: bg + '20', color: bg, fontWeight: 500 }}>
+                                    {c.segment}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                  <div style={{ maxHeight: 560, overflowY: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <thead style={{ position: 'sticky', top: 0, background: 'var(--color-background-primary)', zIndex: 1 }}>
-                        <tr>
-                          <th style={thStyle}>Customer ID</th>
-                          <th style={{ ...thStyle, width: 100 }}>Segment</th>
-                          <th style={{ ...thStyle, width: 70, textAlign: 'right' }}>Score</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sortedCustomers.map((c, idx) => {
-                          const bg = AVATAR_BG[c.segment] ?? AVATAR_BG.Other;
-                          return (
+
+                  {/* Right — Product cards */}
+                  <div style={panel}>
+                    <p style={{ ...sectionLabel, marginBottom: 14 }}>Product Catalog — click to view details</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+                      {CATALOG_PRODUCTS.map(p => {
+                        const catColor = CATEGORY_COLORS[p.category];
+                        return (
+                          <div
+                            key={p.id}
+                            onClick={() => setDashProductId(p.id)}
+                            style={{
+                              background: 'var(--color-background-secondary)',
+                              border: '0.5px solid var(--color-border-tertiary)',
+                              borderRadius: 10, padding: '12px 14px', cursor: 'pointer',
+                              transition: 'border-color 0.15s, box-shadow 0.15s',
+                            }}
+                            onMouseEnter={e => {
+                              e.currentTarget.style.borderColor = 'var(--color-action)';
+                              e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.10)';
+                            }}
+                            onMouseLeave={e => {
+                              e.currentTarget.style.borderColor = 'var(--color-border-tertiary)';
+                              e.currentTarget.style.boxShadow = 'none';
+                            }}
+                          >
+                            <p style={{ fontSize: 12, fontWeight: 600, lineHeight: 1.3, marginBottom: 6 }}>{p.name}</p>
+                            <span style={{
+                              fontSize: 9, fontWeight: 600, padding: '1px 7px', borderRadius: 8,
+                              background: catColor.bg, color: catColor.text,
+                            }}>{p.category.toUpperCase()}</span>
+                            <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6, lineHeight: 1.4 }}>
+                              {p.description.length > 80 ? p.description.slice(0, 80) + '…' : p.description}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bottom row — Sent Offers (full width) */}
+                <div style={panel}>
+                  <p style={{ ...sectionLabel, marginBottom: 14 }}>Sent Offers · {allSentOffers.length}</p>
+                  {allSentOffers.length === 0 ? (
+                    <p style={{ fontSize: 13, color: 'var(--color-text-muted)', padding: '12px 0' }}>No offers sent yet. Send an offer from a customer&apos;s profile.</p>
+                  ) : (
+                    <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead style={{ position: 'sticky', top: 0, background: 'var(--color-background-primary)', zIndex: 1 }}>
+                          <tr>
+                            <th style={thStyle}>Customer</th>
+                            <th style={thStyle}>Product</th>
+                            <th style={thStyle}>Sent By</th>
+                            <th style={{ ...thStyle, textAlign: 'right' }}>Date &amp; Time</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {allSentOffers.map(offer => (
                             <tr
-                              key={c.customer_id}
-                              onClick={() => openCustomerFromDashboard(c.customer_id)}
+                              key={offer.id}
+                              onClick={() => openCustomerFromDashboard(offer.customerId)}
                               style={{ borderBottom: '0.5px solid var(--color-border-tertiary)', cursor: 'pointer' }}
                               onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-background-secondary)')}
                               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                             >
-                              <td style={tdStyle}>
-                                <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>{c.customer_id}</span>
-                              </td>
-                              <td style={tdStyle}>
-                                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: bg + '20', color: bg, fontWeight: 500 }}>
-                                  {c.segment}
-                                </span>
-                              </td>
-                              <td style={{ ...tdStyle, textAlign: 'right' }}>
-                                <span style={{ fontWeight: 600, color: 'var(--color-action)' }}>{c.match_score}%</span>
+                              <td style={tdStyle}><span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{offer.customerId}</span></td>
+                              <td style={tdStyle}>{offer.productName}</td>
+                              <td style={tdStyle}><span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{offer.sentBy}</span></td>
+                              <td style={{ ...tdStyle, textAlign: 'right', fontSize: 11, color: 'var(--color-text-muted)' }}>
+                                {new Date(offer.timestamp).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                               </td>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
 
-                {/* Right — Product cards */}
-                <div>
-                  <p style={{ ...sectionLabel, marginBottom: 14 }}>Product Catalog — click to view details</p>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-                    {CATALOG_PRODUCTS.map(p => {
-                      const catColor = CATEGORY_COLORS[p.category];
-                      return (
-                        <div
-                          key={p.id}
-                          onClick={() => setDashProductId(p.id)}
-                          style={{
-                            background: 'var(--color-background-primary)',
-                            border: '0.5px solid var(--color-border-tertiary)',
-                            borderRadius: 10, padding: '12px 14px', cursor: 'pointer',
-                            transition: 'border-color 0.15s, box-shadow 0.15s',
-                          }}
-                          onMouseEnter={e => {
-                            e.currentTarget.style.borderColor = 'var(--color-action)';
-                            e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.10)';
-                          }}
-                          onMouseLeave={e => {
-                            e.currentTarget.style.borderColor = 'var(--color-border-tertiary)';
-                            e.currentTarget.style.boxShadow = 'none';
-                          }}
-                        >
-                          <p style={{ fontSize: 12, fontWeight: 600, lineHeight: 1.3, marginBottom: 6 }}>{p.name}</p>
-                          <span style={{
-                            fontSize: 9, fontWeight: 600, padding: '1px 7px', borderRadius: 8,
-                            background: catColor.bg, color: catColor.text,
-                          }}>{p.category.toUpperCase()}</span>
-                          <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6, lineHeight: 1.4 }}>
-                            {p.description.length > 80 ? p.description.slice(0, 80) + '…' : p.description}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
               </div>
             )}
 
@@ -488,13 +567,13 @@ export default function EmployeePortal() {
                   border: '0.5px solid var(--color-border-tertiary)',
                   borderRadius: 12, overflow: 'hidden',
                 }}>
+                  <div style={{ maxHeight: 860, overflowY: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
+                    <thead style={{ position: 'sticky', top: 0, background: 'var(--color-background-secondary)', zIndex: 1 }}>
                       <tr style={{ background: 'var(--color-background-secondary)' }}>
                         {[
                           { label: t('emp.customerId'), align: 'left' },
                           { label: t('emp.segment'), align: 'left' },
-                          { label: t('emp.rating'), align: 'left' },
                           { label: 'GDPR', align: 'center' },
                           { label: 'Mkt', align: 'center' },
                           { label: 'Prof', align: 'center' },
@@ -527,20 +606,19 @@ export default function EmployeePortal() {
                             onMouseLeave={e => { if (!isOpen) e.currentTarget.style.background = 'transparent'; }}
                             onClick={() => openDetail(c.customer_id)}
                           >
-                            <td style={{ padding: '10px 14px' }}>
-                              <span style={{ fontSize: 13, fontWeight: 500, fontFamily: 'monospace' }}>{c.customer_id}</span>
+                            <td style={{ padding: '12px 16px' }}>
+                              <span style={{ fontSize: 14, fontWeight: 500, fontFamily: 'monospace' }}>{c.customer_id}</span>
                             </td>
-                            <td style={{ padding: '10px 14px' }}>
+                            <td style={{ padding: '12px 16px' }}>
                               <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: bg + '20', color: bg, fontWeight: 500 }}>
                                 {c.segment}
                               </span>
                             </td>
-                            <td style={{ padding: '10px 14px' }}><StarRating score={c.match_score} /></td>
-                            <td style={{ padding: '10px 14px', textAlign: 'center' }}><ConsentDot value={consent.gdpr} /></td>
-                            <td style={{ padding: '10px 14px', textAlign: 'center' }}><ConsentDot value={consent.marketing} /></td>
-                            <td style={{ padding: '10px 14px', textAlign: 'center' }}><ConsentDot value={consent.profiling} /></td>
-                            <td style={{ padding: '10px 14px', textAlign: 'center' }}><ConsentDot value={consent.analytics} /></td>
-                            <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}><ConsentDot value={consent.gdpr} /></td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}><ConsentDot value={consent.marketing} /></td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}><ConsentDot value={consent.profiling} /></td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}><ConsentDot value={consent.analytics} /></td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                               <span style={{
                                 fontSize: 11, padding: '3px 10px', borderRadius: 6, fontWeight: 500,
                                 background: isOpen ? 'var(--color-action)' : 'transparent',
@@ -553,13 +631,14 @@ export default function EmployeePortal() {
                       })}
                       {filteredCustomers.length === 0 && (
                         <tr>
-                          <td colSpan={8} style={{ padding: 28, textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                          <td colSpan={7} style={{ padding: 28, textAlign: 'center', color: 'var(--color-text-muted)' }}>
                             {searchQuery ? t('emp.noResults') : t('emp.loadingCustomers')}
                           </td>
                         </tr>
                       )}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               </div>
             )}

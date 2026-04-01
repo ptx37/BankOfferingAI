@@ -26,12 +26,13 @@ export function getNotifications(customerId: string): AppNotification[] {
 
 export function addNotification(
   customerId: string,
-  payload: Pick<AppNotification, 'productName' | 'productId' | 'message' | 'sentBy'>
+  payload: Pick<AppNotification, 'productName' | 'productId' | 'message' | 'sentBy'>,
+  id?: string
 ): void {
   if (typeof window === 'undefined') return;
   const existing = getNotifications(customerId);
   const notif: AppNotification = {
-    id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    id: id ?? `notif_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     customerId,
     timestamp: new Date().toISOString(),
     read: false,

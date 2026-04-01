@@ -253,12 +253,26 @@ export default function CustomerPortal() {
       .catch(() => {});
   }, [customerId]);
 
-  // Load & poll inbox
+  // Load & poll inbox — merge server-side (cross-browser) + localStorage (same-browser, instant)
   useEffect(() => {
     if (!customerId) return;
-    const refresh = () => {
-      setInbox(getNotifications(customerId));
-      setUnreadCount(getUnreadCount(customerId));
+    const refresh = async () => {
+      const local = getNotifications(customerId);
+      try {
+        const api: AppNotification[] = await fetch(`/api/notifications/${customerId}`, { headers: authHeader() }).then(r => r.json());
+        const byId = new Map(api.map(n => [n.id, n]));
+        // Prefer local read state — if local says read:true, keep it (avoids unread flicker on poll)
+        local.forEach(n => {
+          if (!byId.has(n.id)) byId.set(n.id, n);
+          else if (n.read) byId.set(n.id, { ...byId.get(n.id)!, read: true });
+        });
+        const merged = [...byId.values()].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+        setInbox(merged);
+        setUnreadCount(merged.filter(n => !n.read).length);
+      } catch {
+        setInbox(local);
+        setUnreadCount(getUnreadCount(customerId));
+      }
     };
     refresh();
     const interval = setInterval(refresh, 3000);
@@ -270,6 +284,7 @@ export default function CustomerPortal() {
     if (activeTab === 'inbox' && customerId) {
       setTimeout(() => {
         markAllRead(customerId);
+        fetch(`/api/notifications/${customerId}`, { method: 'PATCH', headers: authHeader() }).catch(() => {});
         setUnreadCount(0);
         setInbox(getNotifications(customerId));
       }, 500);
@@ -346,7 +361,13 @@ export default function CustomerPortal() {
   };
   const displayTransactions = mockTransactions.length ? mockTransactions : PLACEHOLDER_TRANSACTIONS;
 
-  function signOut() { localStorage.removeItem('auth_token'); localStorage.removeItem('role'); localStorage.removeItem('display_name'); localStorage.removeItem('customer_id'); window.location.href = '/login'; }
+  function signOut() {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user_id');
+    localStorage.removeItem('role');
+    localStorage.removeItem('display_name');
+    window.location.href = '/login';
+  }
 
   // ── Styles ───────────────────────────────────────────────────────────────────
   const section: React.CSSProperties = {
@@ -402,12 +423,12 @@ export default function CustomerPortal() {
         <main style={{
           flex: 1, overflowY: 'auto', padding: '28px 24px',
           display: 'flex', flexDirection: 'column', gap: 24,
-          maxWidth: 920, width: '100%', margin: '0 auto', boxSizing: 'border-box',
+          width: '100%', boxSizing: 'border-box',
         }}>
 
           {/* ══ HOME TAB ══════════════════════════════════════════════════ */}
           {activeTab === 'home' && (
-            <>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: 24, alignItems: 'start' }}>
 
               {/* SECTION 1 — Suggested products */}
               <section style={section}>
@@ -521,29 +542,31 @@ export default function CustomerPortal() {
                   <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr 140px 90px', padding: '6px 0 8px', borderBottom: '1px solid var(--color-border-tertiary)', fontSize: 11, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', gap: 12 }}>
                     <span>Date</span><span>Description</span><span>Category</span><span style={{ textAlign: 'right' }}>Amount</span>
                   </div>
-                  {displayTransactions.map((tx, i) => {
-                    const isMock = 'channel' in tx;
-                    const description = isMock
-                      ? (TX_LABEL[(tx as { category: string }).category] ?? (tx as { category: string }).category)
-                      : (tx as { description: string }).description;
-                    const category = isMock
-                      ? ((tx as { category: string }).category.charAt(0).toUpperCase() + (tx as { category: string }).category.slice(1))
-                      : (tx as { category: string }).category;
-                    return (
-                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '110px 1fr 140px 90px', padding: '11px 0', borderBottom: '1px solid var(--color-border-tertiary)', gap: 12, alignItems: 'center', fontSize: 13 }}>
-                        <span style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
-                          {new Date(tx.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
-                        </span>
-                        <span style={{ color: 'var(--color-text-primary)', fontWeight: tx.amount > 0 ? 500 : 400 }}>{description}</span>
-                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'var(--color-background-secondary)', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap', justifySelf: 'start' }}>
-                          {category}
-                        </span>
-                        <span style={{ textAlign: 'right', fontWeight: 500, color: tx.amount > 0 ? 'var(--color-positive)' : 'var(--color-negative)' }}>
-                          {tx.amount > 0 ? '+' : ''}€{Math.abs(tx.amount).toFixed(2)}
-                        </span>
-                      </div>
-                    );
-                  })}
+                  <div style={{ maxHeight: 420, overflowY: 'auto' }}>
+                    {displayTransactions.map((tx, i) => {
+                      const isMock = 'channel' in tx;
+                      const description = isMock
+                        ? (TX_LABEL[(tx as { category: string }).category] ?? (tx as { category: string }).category)
+                        : (tx as { description: string }).description;
+                      const category = isMock
+                        ? ((tx as { category: string }).category.charAt(0).toUpperCase() + (tx as { category: string }).category.slice(1))
+                        : (tx as { category: string }).category;
+                      return (
+                        <div key={i} style={{ display: 'grid', gridTemplateColumns: '110px 1fr 140px 90px', padding: '11px 0', borderBottom: '1px solid var(--color-border-tertiary)', gap: 12, alignItems: 'center', fontSize: 13 }}>
+                          <span style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
+                            {new Date(tx.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                          </span>
+                          <span style={{ color: 'var(--color-text-primary)', fontWeight: tx.amount > 0 ? 500 : 400 }}>{description}</span>
+                          <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'var(--color-background-secondary)', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap', justifySelf: 'start' }}>
+                            {category}
+                          </span>
+                          <span style={{ textAlign: 'right', fontWeight: 500, color: tx.amount > 0 ? 'var(--color-positive)' : 'var(--color-negative)' }}>
+                            {tx.amount > 0 ? '+' : ''}€{Math.abs(tx.amount).toFixed(2)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </section>
 
@@ -578,7 +601,7 @@ export default function CustomerPortal() {
                 ))}
               </section>
 
-            </>
+            </div>
           )}
 
           {/* ══ INBOX TAB ═════════════════════════════════════════════════ */}
@@ -790,6 +813,9 @@ export default function CustomerPortal() {
 
             {/* Sticky footer with CTA */}
             <div style={{ padding: '16px 24px', borderTop: '0.5px solid var(--color-border-tertiary)', flexShrink: 0 }}>
+              <p style={{ fontSize: 11, color: 'var(--color-text-muted)', lineHeight: 1.6, textAlign: 'center', marginBottom: 12 }}>
+                By pressing &ldquo;I&apos;m interested&rdquo;, you agree to have your personal and financial data processed by the bank and its AI systems in connection with this product application.
+              </p>
               <button
                 onClick={() => setGuidelinesProduct(null)}
                 style={{
@@ -797,7 +823,7 @@ export default function CustomerPortal() {
                   background: '#185FA5', color: 'white',
                   border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer',
                 }}
-              >I&apos;m interested — contact my RM</button>
+              >I&apos;m interested</button>
               <button
                 onClick={() => setGuidelinesProduct(null)}
                 style={{ width: '100%', padding: '10px', borderRadius: 10, background: 'transparent', color: 'var(--color-text-secondary)', border: 'none', fontSize: 13, cursor: 'pointer', marginTop: 8 }}

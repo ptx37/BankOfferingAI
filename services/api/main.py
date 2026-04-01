@@ -12,7 +12,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from services.api.routers import compliance, customers, offers, profiles, webhooks
+from services.api.routers import compliance, customers, notifications, offers, profiles, webhooks
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +169,7 @@ def create_app() -> FastAPI:
 
     # Routers
     app.include_router(offers.router, prefix="/offers", tags=["offers"])
+    app.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
     app.include_router(customers.router, prefix="/customers", tags=["customers"])
     app.include_router(compliance.router, prefix="/compliance", tags=["compliance"])
     app.include_router(profiles.router, prefix="/profiles", tags=["profiles"])

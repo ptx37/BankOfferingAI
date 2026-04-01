@@ -139,7 +139,10 @@ export default function Dashboard() {
   const offers: Offer[] = (offersData?.offers ?? []).slice(0, 4);
 
   function signOut() {
-    localStorage.clear();
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user_id');
+    localStorage.removeItem('role');
+    localStorage.removeItem('display_name');
     window.location.href = '/login';
   }
 
